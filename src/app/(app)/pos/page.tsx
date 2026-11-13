@@ -166,7 +166,8 @@ export default function PuntoDeVenta() {
   const pagosAplicados = pagoAutomatico ? [{ ...pagos[0], importe: total.toFixed(2) }] : pagos;
   const pagado = pagosAplicados.reduce((s, p) => s.plus(p.importe || 0), new Decimal(0));
   const cambio = Decimal.max(pagado.minus(total), 0);
-  const lineasInvalidas = carrito.lineas.filter((l) => !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion));
+  // Cantidad no válida o sin precio (productos dados de alta sin precio no se venden en $0)
+  const lineasInvalidas = carrito.lineas.filter((l) => !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion) || !(Number(l.precio) > 0));
 
   const confirmar = async () => {
     if (!ctx || enviando) return;
@@ -295,6 +296,7 @@ export default function PuntoDeVenta() {
         <div className="text-right">
           <div className="text-sm opacity-80">Subtotal {mxn(subtotal)} · Impuestos {mxn(impuestos)}</div>
           <div className="text-3xl font-bold">{mxn(total)}</div>
+          {carrito.lineas.some((l) => !(Number(l.precio) > 0)) && <div className="text-sm text-amber-300">Hay productos sin precio: escríbelo para cobrar.</div>}
           <button disabled={!carrito.lineas.length || lineasInvalidas.length > 0} onClick={() => setCobrando(true)}
             className="mt-2 rounded-md bg-emerald-600 text-white px-6 py-2 text-lg disabled:opacity-40" title="F8">Cobrar</button>
         </div>

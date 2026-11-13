@@ -93,8 +93,8 @@ export function validar(f: ProductoForm): string[] {
     const pz = num(f.piezas_por_caja);
     if (!pz || pz.lte(0) || !pz.isInteger()) e.push("Piezas por caja: número entero mayor a 0.");
     if (!num(f.m2_por_caja)?.gt(0)) e.push("m² por caja: número mayor a 0.");
-    if (!num(f.precio_m2) && !num(f.precio_caja)) e.push("Falta el precio por m² (o el precio por caja).");
-  } else if (!num(f.precio)) e.push("Falta el precio.");
+  }
+  // El precio es opcional: sin precio el producto se da de alta y no se puede vender hasta capturarlo
   return e;
 }
 
@@ -113,7 +113,7 @@ export const COLUMNAS = [
   { clave: "piezas_sueltas", titulo: "PIEZAS SUELTAS", ancho: 10, ayuda: "Pisos. Existencia inicial." },
   { clave: "unidad", titulo: "UNIDAD", ancho: 10, ayuda: "Otros productos: PIEZA, BULTO, KG, LITRO, ROLLO… (vacío = PIEZA)." },
   { clave: "cantidad", titulo: "CANTIDAD", ancho: 10, ayuda: "Otros productos. Existencia inicial." },
-  { clave: "precio", titulo: "PRECIO", ancho: 11, ayuda: "Pisos: precio por m². Otros: precio por unidad. Sin IVA." },
+  { clave: "precio", titulo: "PRECIO", ancho: 11, ayuda: "Pisos: precio por m². Otros: precio por unidad. Sin IVA. Si se deja vacío, el producto se carga sin precio." },
   { clave: "codigo_barras", titulo: "CÓDIGO DE BARRAS", ancho: 16, ayuda: "Opcional." },
   { clave: "comentarios", titulo: "COMENTARIOS", ancho: 24, ayuda: "Opcional." },
 ] as const;
@@ -233,13 +233,14 @@ function armarFila(fila: number, d: Record<string, string>): FilaImport {
     Object.assign(datos, { presentacion: "piso", piezas_por_caja: piezas!.toString(), m2_por_caja: m2!.toString(), precio_m2: precio?.toString() ?? null,
       cajas: cajas?.toString() ?? null, piezas_sueltas: sueltas?.toString() ?? null });
   } else {
-    if (piezas || m2) errores.push("para piso se necesitan PIEZAS X CAJA y M² X CAJA");
+    // Falta piezas o m² por caja: se carga igual (por caja o pieza) con aviso, en vez de rechazar la fila
+    if (piezas || m2) avisos.push(`le falta ${piezas ? "M² X CAJA" : "PIEZAS X CAJA"}: se carga como producto normal, no como piso`);
     // Sin unidad: si solo trae cajas en existencia se toma CAJA, si no PIEZA
     const unidad = (d.unidad || (cajas && !cantidad ? "CAJA" : "PIEZA")).toUpperCase().replace(/[^A-Z0-9]/g, "");
-    if (d.formato && !d.unidad) avisos.push(`tiene formato pero no piezas/m² por caja: se cargará por ${unidad}`);
+    if (d.formato && !d.unidad && !piezas && !m2) avisos.push(`tiene formato pero no piezas/m² por caja: se cargará por ${unidad}`);
     if (!/^[A-Z0-9]{1,10}$/.test(unidad)) errores.push("unidad no válida");
     Object.assign(datos, { presentacion: "unidad", unidad, precio: precio?.toString() ?? null, cantidad: (cantidad ?? cajas)?.toString() ?? null });
   }
-  if (!precio) errores.push("falta el precio");
+  if (!precio) avisos.push("sin precio: se carga en $0 y no se podrá vender hasta capturarlo");
   return { fila, datos, errores, avisos };
 }

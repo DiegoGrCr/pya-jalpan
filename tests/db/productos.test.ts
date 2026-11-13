@@ -96,3 +96,15 @@ describe("eliminar_producto", () => {
     expect((await q(`select count(*)::int n from productos where id = $1`, [id]))[0].n).toBe(1);
   });
 });
+
+describe("productos sin precio", () => {
+  it("se dan de alta sin precio y al reimportar sin precio se conserva el que ya tenían", async () => {
+    const r = await rpc(s.admin, "guardar_producto", piso({ nombre: "Piso Sin Precio", precio_m2: null }));
+    expect((await q(`select count(*)::int n from precios pr join unidades_venta u on u.id = pr.unidad_venta_id where u.producto_id = $1`, [r.producto_id]))[0].n).toBe(0);
+    const u = await rpc(s.admin, "guardar_producto", { presentacion: "unidad", nombre: "Llave sin precio", unidad: "PIEZA" });
+    await rpc(s.admin, "guardar_producto", { id: u.producto_id, presentacion: "unidad", nombre: "Llave sin precio", unidad: "PIEZA", precio: 120 });
+    await rpc(s.admin, "importar_productos", { idempotency_key: key(), filas: [{ fila: 1, sku: u.sku, presentacion: "unidad", nombre: "Llave sin precio", unidad: "PIEZA" }] });
+    const [p] = await q(`select pr.precio::text from precios pr join unidades_venta u on u.id = pr.unidad_venta_id where u.producto_id = $1`, [u.producto_id]);
+    expect(p.precio).toBe("120.000000");
+  });
+});

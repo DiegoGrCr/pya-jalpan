@@ -152,7 +152,7 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {campo("piezas_por_caja", "Piezas por caja *", { inputMode: "numeric" })}
               {campo("m2_por_caja", "m² por caja *", { inputMode: "decimal" })}
-              {campo("precio_m2", "Precio por m² (sin IVA) *", { inputMode: "decimal" })}
+              {campo("precio_m2", "Precio por m² (sin IVA)", { inputMode: "decimal" })}
               <div className="text-sm">
                 <div>Precios de venta</div>
                 {calc && !manualCaja ? (
@@ -183,7 +183,7 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
           <>
             <div className="barra-seccion">Precio</div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {campo("precio", `Precio por ${f.unidad} (sin IVA) *`, { inputMode: "decimal" })}
+              {campo("precio", `Precio por ${f.unidad} (sin IVA)`, { inputMode: "decimal" })}
             </div>
           </>
         )}

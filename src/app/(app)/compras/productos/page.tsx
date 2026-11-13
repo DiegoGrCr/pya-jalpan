@@ -93,11 +93,11 @@ export default function Productos() {
       const cajas = Math.trunc(ex / f.piezas_por_caja), sueltas = ex - cajas * f.piezas_por_caja;
       existencia = `${cajas} cj${sueltas ? ` + ${fmtCantidad(sueltas)} pz` : ""}`;
       const pc = precio(f, "CAJA");
-      precioTxt = `${f.precio_m2 ? `${mxn(f.precio_m2)}/m²` : ""}${pc ? ` · ${mxn(pc)}/cj` : ""}`;
+      precioTxt = `${f.precio_m2 ? `${mxn(f.precio_m2)}/m²` : ""}${pc ? ` · ${mxn(pc)}/cj` : ""}` || "$0.00";
     } else {
       existencia = `${fmtCantidad(ex)} ${f.unidad_base}`;
       const pb = precio(f, f.unidad_base);
-      precioTxt = pb ? `${mxn(pb)}/${f.unidad_base.toLowerCase()}` : "—";
+      precioTxt = pb ? `${mxn(pb)}/${f.unidad_base.toLowerCase()}` : "$0.00";
     }
     return { f, existencia, precioTxt, negativa: ex < 0 };
   }), [filas, lista]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -146,7 +146,7 @@ export default function Productos() {
                 <td className="py-2">{f.marcas?.nombre ?? "—"}</td>
                 <td className="py-2">{f.formato ?? "—"}</td>
                 <td className="py-2 whitespace-nowrap">{f.presentacion === "piso" ? `${f.piezas_por_caja} pz · ${fmtCantidad(f.m2_por_caja ?? 0)} m²` : f.unidad_base}</td>
-                <td className="py-2 whitespace-nowrap">{precioTxt}</td>
+                <td className={`py-2 whitespace-nowrap ${precioTxt === "$0.00" ? "text-amber-700 font-semibold" : ""}`}>{precioTxt}</td>
                 <td className={`py-2 pr-2 text-right whitespace-nowrap ${negativa ? "text-[var(--peligro)] font-semibold" : ""}`}>{existencia}</td>
               </tr>
             ))}

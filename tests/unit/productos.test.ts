@@ -36,6 +36,22 @@ describe("Plantilla de productos", () => {
     expect(hojas[1].filas[0].datos).toMatchObject({ marca: "Marca Y", categoria: "Adhesivos", unidad: "PIEZA", cantidad: "26" });
   });
 
+  it("filas sin precio o con datos de caja incompletos se cargan con aviso, no con error", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("MarcaZ");
+    ws.addRow(["FORMATO", "SKU", "DESCRIPCIÓN", "PIEZAS X CAJA", "M² X CAJA", "CAJAS EN EXISTENCIA", "PRECIO"]);
+    ws.addRow(["60x60", "", "Sin Precio", 4, 1.44, 2, ""]);
+    ws.addRow(["", "", "Solo Piezas", 4, "", 3, 100]);
+    ws.addRow(["", "", "Sin Formato Ni Precio", "", "", "", ""]);
+    const [a, b, c] = (await leerExcel(await archivo(await wb.xlsx.writeBuffer() as ArrayBuffer)))[0].filas;
+    for (const f of [a, b, c]) expect(f.errores).toEqual([]);
+    expect(a.datos).toMatchObject({ presentacion: "piso", precio_m2: null });
+    expect(a.avisos.join()).toMatch(/sin precio/);
+    expect(b.datos).toMatchObject({ presentacion: "unidad", unidad: "CAJA", cantidad: "3" });
+    expect(b.avisos.join()).toMatch(/M² X CAJA/);
+    expect(c.datos).toMatchObject({ presentacion: "unidad", unidad: "PIEZA", precio: null });
+  });
+
   it("precios de piso desde m² y vista previa de SKU", () => {
     const p = preciosPiso("0.99", "11", "250")!;
     expect(p.caja.toString()).toBe("247.5");
