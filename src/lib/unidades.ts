@@ -25,6 +25,16 @@ export interface ProductoVenta {
   ieps_tasa: string;
   tipo: "producto" | "servicio";
   unidades: UnidadVenta[];
+  /** Pisos: inventario en piezas; se muestran m² con m2_por_caja / piezas_por_caja */
+  presentacion?: "piso" | "unidad";
+  m2_por_caja?: string | null;
+  piezas_por_caja?: number | null;
+}
+
+/** Unidad en que se muestra la medida: pisos en m² (desde piezas), lo demás en su unidad base. */
+export function medida(p: Pick<ProductoVenta, "unidad_base" | "m2_por_caja" | "piezas_por_caja">): { unidad: string; porBase: Decimal } {
+  if (p.m2_por_caja && p.piezas_por_caja) return { unidad: "M2", porBase: new Decimal(p.m2_por_caja).div(p.piezas_por_caja) };
+  return { unidad: p.unidad_base, porBase: new Decimal(1) };
 }
 
 const D = (v: Decimal.Value) => new Decimal(v);

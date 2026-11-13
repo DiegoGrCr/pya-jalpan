@@ -22,6 +22,7 @@ describe("Venta sin IVA", () => {
     expect(await leer(r.venta_id)).toEqual({ sin_iva: true, subtotal: "360.00", iva: "0.00", total: "360.00", iva_tasa: "0.0000" });
   });
   it("con sin_iva = false se desglosa el IVA del producto y el total no cambia", async () => {
+    await q(`update productos set iva_tasa = 0.16 where id = $1`, [s.piso.id]); // producto que sí lleva IVA
     const r = await rpc(s.cajeroA, "confirmar_venta", venta({ sin_iva: false }));
     const v = await leer(r.venta_id);
     expect(v).toMatchObject({ sin_iva: false, total: "360.00", iva_tasa: "0.1600" });

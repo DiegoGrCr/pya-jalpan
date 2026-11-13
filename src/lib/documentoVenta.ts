@@ -17,6 +17,8 @@ export interface PartidaDoc {
   renglon: number; sku: string; nombre: string; unidad: string; unidad_base: string; factor: string;
   cantidad: string; cantidad_base: string; cantidad_entregada: string; precio_unitario: string; descuento: string; total: string;
   iva_tasa: string; ieps_tasa: string; vendida_sin_existencia: boolean;
+  /** Pisos (inventario en piezas): m² por pieza para mostrar la equivalencia en m² */
+  m2_por_pieza?: number | null;
 }
 export interface PagoDoc { forma: string; importe: string; referencia: string | null }
 export interface EmpresaDoc {
@@ -48,16 +50,17 @@ export const pendienteEntrega = (v: VentaDoc) => v.partidas.some((p) => Number(p
 
 interface FilaVenta extends Omit<VentaDoc, "sucursal" | "almacen" | "cliente" | "empresa" | "partidas" | "pagos"> {
   sucursales: VentaDoc["sucursal"]; almacenes: { nombre: string }; clientes: VentaDoc["cliente"];
-  venta_partidas: (Omit<PartidaDoc, "sku" | "nombre" | "unidad" | "unidad_base"> & { unidad_nombre: string; productos: { sku: string; nombre: string; unidad_base: string } })[];
+  venta_partidas: (Omit<PartidaDoc, "sku" | "nombre" | "unidad" | "unidad_base"> & { unidad_nombre: string; productos: { sku: string; nombre: string; unidad_base: string; m2_por_caja?: string | null; piezas_por_caja?: number | null } })[];
   venta_pagos: PagoDoc[];
 }
 
-const consultaVenta = (sucursal: string) => `id, serie, folio, fecha, tipo, estado, subtotal, descuento, ieps, iva, total, pagado, saldo, cambio,
+const PROD = "sku, nombre, unidad_base, m2_por_caja, piezas_por_caja", PROD_BASICO = "sku, nombre, unidad_base";
+const consultaVenta = (sucursal: string, prod = PROD) => `id, serie, folio, fecha, tipo, estado, subtotal, descuento, ieps, iva, total, pagado, saldo, cambio,
   vencimiento, comentarios, motivo_cancelacion, factura_uuid,
   sucursales(${sucursal}), almacenes(nombre),
   clientes(nombre, razon_social, rfc, correo_facturas, telefono, es_publico_general),
   venta_partidas(renglon, unidad_nombre, factor, cantidad, cantidad_base, cantidad_entregada, precio_unitario, descuento, total,
-    iva_tasa, ieps_tasa, vendida_sin_existencia, productos(sku, nombre, unidad_base)),
+    iva_tasa, ieps_tasa, vendida_sin_existencia, productos(${prod})),
   venta_pagos(forma, importe, referencia)`;
 
 /** Columna inexistente (falta aplicar una migración): Postgres 42703 / PostgREST PGRST204. */
@@ -88,8 +91,9 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
     cargarEmpresa(),
   ]);
   let v = primera;
-  // Compatibilidad: si aún no se aplica la migración 0010, se usan solo las columnas anteriores
-  if (faltaColumna(v.error)) v = await sb.from("ventas").select(consultaVenta("codigo, nombre, cp_expedicion, direccion")).eq("id", id).maybeSingle();
+  // Compatibilidad: si aún no se aplican las migraciones 0015 / 0010, se usan solo las columnas anteriores
+  if (faltaColumna(v.error)) v = await sb.from("ventas").select(consultaVenta("codigo, nombre, cp_expedicion, direccion, telefono, lugar_expedicion", PROD_BASICO)).eq("id", id).maybeSingle();
+  if (faltaColumna(v.error)) v = await sb.from("ventas").select(consultaVenta("codigo, nombre, cp_expedicion, direccion", PROD_BASICO)).eq("id", id).maybeSingle();
   if (v.error) throw v.error;
   if (!v.data) return null;
   const f = v.data as unknown as FilaVenta;
@@ -99,6 +103,7 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
     empresa,
     partidas: [...venta_partidas].sort((a, b) => a.renglon - b.renglon).map(({ productos, unidad_nombre, ...p }) => ({
       ...p, sku: productos.sku, nombre: productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
+      m2_por_pieza: productos.m2_por_caja && productos.piezas_por_caja ? Number(productos.m2_por_caja) / productos.piezas_por_caja : null,
     })),
     pagos: venta_pagos,
   };
@@ -204,7 +209,8 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
     head: [["Cód.", "Cant.", "Unidad.", "Descripción", "Precio\nUnitario", "Importe"]],
     body: imp.filas.map(({ p, precio, importe }) => [
       p.sku, n4(p.cantidad), p.unidad,
-      [p.unidad !== p.unidad_base ? `${p.nombre} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : p.nombre,
+      [p.m2_por_pieza ? `${p.nombre} (${fmtCantidad(Number(p.cantidad_base) * p.m2_por_pieza, 4)} M2)`
+        : p.unidad !== p.unidad_base ? `${p.nombre} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : p.nombre,
         " "].join("\n"), // el último renglón se reserva para la línea de impuesto (letra chica)
       n4(precio), n4(importe),
     ]),
