@@ -43,3 +43,6 @@ next-env.d.ts
 # Postgres embebido de pruebas
 .pgdata-test/
 !.env.example
+
+# Datos reales de la operación (no subir)
+datos-locales/
