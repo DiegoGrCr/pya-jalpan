@@ -1,0 +1,39 @@
+{
+  "name": "erp-nombre",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build --turbopack",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "vitest run",
+    "test:db": "vitest run tests/db",
+    "test:unit": "vitest run tests/unit"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.49.4",
+    "decimal.js": "^10.5.0",
+    "jspdf": "4.2.1",
+    "jspdf-autotable": "5.0.9",
+    "next": "^15.5.29",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/pg": "^8.11.11",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "embedded-postgres": "^17.4.0-beta.15",
+    "eslint": "^9",
+    "eslint-config-next": "^15.5.29",
+    "pg": "^8.14.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^3.1.1"
+  }
+}
