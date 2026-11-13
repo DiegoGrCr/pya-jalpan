@@ -127,12 +127,14 @@ export function resumenTexto(v: VentaDoc): string {
 /** Renglones y totales tal como se muestran. Sin desglose: precios con IVA y "I.V.A. 0 %" (como en las notas). */
 export function importesImpresos(v: VentaDoc) {
   const desglosa = v.empresa.remision_desglosa_iva;
+  const r2 = (x: number) => Math.round(x * 100) / 100;
   const filas = v.partidas.map((p) => {
     const divisor = desglosa ? (1 + Number(p.ieps_tasa)) * (1 + Number(p.iva_tasa)) : 1;
     const precio = Number(p.precio_unitario) / divisor;
-    return { p, precio, importe: Number(p.cantidad) * precio, tasa: desglosa ? Number(p.iva_tasa) : 0 };
+    // Sin desglose el importe es el cobrado: cantidad × precio redondeado a centavos (igual que la BD)
+    const importe = desglosa ? Number(p.cantidad) * precio : r2(Number(p.cantidad) * precio);
+    return { p, precio, importe, tasa: desglosa ? Number(p.iva_tasa) : 0 };
   });
-  const r2 = (x: number) => Math.round(x * 100) / 100;
   const subtotal = r2(filas.reduce((s, f) => s + f.importe, 0));
   const total = Number(v.total);
   const iva = desglosa ? Number(v.iva) : 0, ieps = desglosa ? Number(v.ieps) : 0;
@@ -155,6 +157,8 @@ type RGB = [number, number, number];
 const AZUL: RGB = [0, 150, 200], GRIS: RGB = [240, 240, 240], TEXTO: RGB = [60, 60, 60];
 const n2 = (x: string | number) => Number(x).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const n4 = (x: string | number) => Number(x).toLocaleString("es-MX", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+/** Precio unitario como da (4 a 6 decimales). */
+const nP = (x: string | number) => Number(x).toLocaleString("es-MX", { minimumFractionDigits: 4, maximumFractionDigits: 6 });
 const pesos = (x: string | number) => `$${n2(x)}`;
 
 function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
@@ -212,7 +216,7 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
       [p.m2_por_pieza ? `${p.nombre} (${fmtCantidad(Number(p.cantidad_base) * p.m2_por_pieza, 4)} M2)`
         : p.unidad !== p.unidad_base ? `${p.nombre} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : p.nombre,
         " "].join("\n"), // el último renglón se reserva para la línea de impuesto (letra chica)
-      n4(precio), n4(importe),
+      nP(precio), n4(importe),
     ]),
     theme: "plain", rowPageBreak: "avoid",
     styles: { fontSize: 8, cellPadding: { top: 1.6, bottom: 1.6, left: 1.2, right: 1.2 }, textColor: TEXTO, valign: "middle" },

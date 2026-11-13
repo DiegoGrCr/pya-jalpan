@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { generarPlantilla } from "@/lib/productos";
-import { fmtCantidad } from "@/lib/unidades";
+import { fmtCantidad, mxnPrecio as mxn } from "@/lib/unidades";
 
 interface Fila {
   id: string; sku: string; nombre: string; formato: string | null; presentacion: "piso" | "unidad"; unidad_base: string;
@@ -15,7 +15,6 @@ interface Fila {
 }
 
 const POR_PAGINA = 50;
-const mxn = (v: string | number) => `$${Number(v).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export default function Productos() {
   const [filas, setFilas] = useState<Fila[]>([]);

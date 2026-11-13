@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import {
-  ProductoVenta, UnidadVenta, aBase, calcularPartida, cantidadValida, equivalencia, fmtCantidad, mxn, unidadesNecesarias,
+  ProductoVenta, UnidadVenta, aBase, calcularPartida, cantidadValida, equivalencia, fmtCantidad, mxn, mxnPrecio, unidadesNecesarias,
 } from "@/lib/unidades";
 
 interface Linea {
@@ -257,7 +257,7 @@ export default function PuntoDeVenta() {
                   </td>
                   <td>
                     <select value={l.unidadId} onChange={(e) => cambiarUnidad(l, e.target.value)} className="border rounded px-1 py-1 bg-[var(--panel)]">
-                      {l.producto.unidades.map((x) => <option key={x.id} value={x.id}>{x.nombre} {x.precio ? `· ${mxn(x.precio)}` : ""}</option>)}
+                      {l.producto.unidades.map((x) => <option key={x.id} value={x.id}>{x.nombre} {x.precio ? `· ${mxnPrecio(x.precio)}` : ""}</option>)}
                     </select>
                   </td>
                   <td>

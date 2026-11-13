@@ -44,14 +44,15 @@ const num = (v: string | number | null | undefined): Decimal | null => {
 };
 
 /**
- * Precios de piso desde el precio por m² (sin IVA), igual que en la base de datos:
+ * Precios de piso desde el precio por m² (sin IVA), sin redondear, igual que en la base de datos:
  * caja = m² por caja × precio m²; pieza = área de la pieza (m² por caja ÷ piezas) × precio m².
  */
 export function preciosPiso(m2PorCaja: string, piezasPorCaja: string, precioM2: string) {
   const m2 = num(m2PorCaja), pz = num(piezasPorCaja), pm2 = num(precioM2);
   if (!m2 || !pz || !pm2 || pz.lte(0)) return null;
   const m2PorPieza = m2.div(pz);
-  return { caja: m2.times(pm2).toDecimalPlaces(2), pieza: m2PorPieza.times(pm2).toDecimalPlaces(2), m2PorPieza };
+  // Sin redondear a centavos: la BD guarda hasta 6 decimales
+  return { caja: m2.times(pm2).toDecimalPlaces(6), pieza: m2PorPieza.times(pm2).toDecimalPlaces(6), m2PorPieza };
 }
 
 /** Área nominal de la pieza según el formato en cm ('60x60' -> 0.36 m²); null si no se puede leer. */

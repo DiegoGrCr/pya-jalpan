@@ -98,3 +98,7 @@ export function calcularPartida(
 
 export const mxn = (v: Decimal.Value) =>
   D(v).toNumber().toLocaleString("es-MX", { style: "currency", currency: "MXN" });
+
+/** Precio unitario: como da, hasta 6 decimales (mínimo 2). $25.005, $175.035 */
+export const mxnPrecio = (v: Decimal.Value) =>
+  D(v).toNumber().toLocaleString("es-MX", { style: "currency", currency: "MXN", minimumFractionDigits: 2, maximumFractionDigits: 6 });

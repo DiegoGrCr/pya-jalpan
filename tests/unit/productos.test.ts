@@ -38,17 +38,17 @@ describe("Plantilla de productos", () => {
 
   it("precios de piso desde m² y vista previa de SKU", () => {
     const p = preciosPiso("0.99", "11", "250")!;
-    expect(p.caja.toFixed(2)).toBe("247.50");
-    expect(p.pieza.toFixed(2)).toBe("22.50");
+    expect(p.caja.toString()).toBe("247.5");
+    expect(p.pieza.toString()).toBe("22.5");
     expect(prefijoSku("Daltile", "Pisos", "18x50")).toBe("DAL-1850-###");
     expect(prefijoSku("Sin marca", "Adhesivos", "")).toBe("ADH-###");
   });
 
-  it("la pieza se calcula con su área, no dividiendo la caja ya redondeada", () => {
-    // 1.5 m² / 7 piezas a $116.69: área 0.214286 m² -> $25.00 (caja $175.04 / 7 daría $25.01)
+  it("la pieza se calcula con su área y los precios no se redondean a centavos", () => {
+    // 1.5 m² / 7 piezas a $116.69: caja 175.035, pieza (0.214286 m²) 25.005
     const p = preciosPiso("1.5", "7", "116.69")!;
-    expect(p.caja.toFixed(2)).toBe("175.04");
-    expect(p.pieza.toFixed(2)).toBe("25.00");
+    expect(p.caja.toString()).toBe("175.035");
+    expect(p.pieza.toString()).toBe("25.005");
     expect(areaFormato("60x60")!.toString()).toBe("0.36");
     expect(areaFormato("18 X 50 cm")!.toString()).toBe("0.09");
     expect(areaFormato("Mosaico")).toBeNull();

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
+import { mxnPrecio } from "@/lib/unidades";
 import { PRODUCTO_VACIO, ProductoForm as Datos, UNIDADES, aPayload, areaFormato, prefijoSku, preciosPiso, validar } from "@/lib/productos";
 
 export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; esNuevo: boolean }) {
@@ -132,7 +133,7 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
                 <div>Precios de venta</div>
                 {calc && !manualCaja ? (
                   <div className="mt-1">
-                    Caja: <b>${calc.caja.toFixed(2)}</b> · Pieza: <b>${calc.pieza.toFixed(2)}</b>
+                    Caja: <b>{mxnPrecio(calc.caja)}</b> · Pieza: <b>{mxnPrecio(calc.pieza)}</b>
                     <div className="text-xs text-[var(--tenue)]">Área por pieza: {calc.m2PorPieza.toDecimalPlaces(4).toString()} m² (m² por caja ÷ piezas)</div>
                   </div>
                 ) : !manualCaja && <div className="mt-1 text-[var(--tenue)]">Se calculan al llenar caja y precio por m².</div>}
