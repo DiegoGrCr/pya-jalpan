@@ -172,7 +172,10 @@ begin
     update unidades_venta set orden = 2 where id = v_base;
     -- Precios: capturados, o calculados desde el precio por m²
     v_pcaja  := coalesce(nullif(p->>'precio_caja','')::numeric, round(v_m2 * v_pm2, 2));
-    v_ppieza := coalesce(nullif(p->>'precio_pieza','')::numeric, round(v_pcaja / v_piezas, 2));
+    -- Pieza = área de la pieza (m² por caja ÷ piezas) × precio m²; si la caja se capturó a mano, caja ÷ piezas
+    v_ppieza := coalesce(nullif(p->>'precio_pieza','')::numeric,
+                         case when nullif(p->>'precio_caja','') is null and v_pm2 is not null
+                              then round(v_m2 / v_piezas * v_pm2, 2) else round(v_pcaja / v_piezas, 2) end);
     perform exigir(v_pcaja is not null, 'Piso: indica el precio por m² o el precio por caja');
     insert into precios (lista_id, unidad_venta_id, precio) values (v_lista, v_caja, v_pcaja), (v_lista, v_base, v_ppieza)
     on conflict (lista_id, unidad_venta_id) do update set precio = excluded.precio, actualizado_en = now();

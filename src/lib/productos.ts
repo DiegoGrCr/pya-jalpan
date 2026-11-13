@@ -43,12 +43,22 @@ const num = (v: string | number | null | undefined): Decimal | null => {
   try { const d = new Decimal(t); return d.isFinite() ? d : null; } catch { return null; }
 };
 
-/** Precio de caja y pieza calculados desde el precio por m² (igual que en la base de datos). */
+/**
+ * Precios de piso desde el precio por m² (sin IVA), igual que en la base de datos:
+ * caja = m² por caja × precio m²; pieza = área de la pieza (m² por caja ÷ piezas) × precio m².
+ */
 export function preciosPiso(m2PorCaja: string, piezasPorCaja: string, precioM2: string) {
   const m2 = num(m2PorCaja), pz = num(piezasPorCaja), pm2 = num(precioM2);
   if (!m2 || !pz || !pm2 || pz.lte(0)) return null;
-  const caja = m2.times(pm2).toDecimalPlaces(2);
-  return { caja, pieza: caja.div(pz).toDecimalPlaces(2), m2PorPieza: m2.div(pz) };
+  const m2PorPieza = m2.div(pz);
+  return { caja: m2.times(pm2).toDecimalPlaces(2), pieza: m2PorPieza.times(pm2).toDecimalPlaces(2), m2PorPieza };
+}
+
+/** Área nominal de la pieza según el formato en cm ('60x60' -> 0.36 m²); null si no se puede leer. */
+export function areaFormato(formato: string): Decimal | null {
+  const m = /^\s*(\d+(?:[.,]\d+)?)\s*[xX×*]\s*(\d+(?:[.,]\d+)?)/.exec(formato ?? "");
+  if (!m) return null;
+  return new Decimal(m[1].replace(",", ".")).times(m[2].replace(",", ".")).div(10000);
 }
 
 /** Vista previa del SKU (la base de datos asigna el consecutivo real). */
@@ -102,7 +112,7 @@ export const COLUMNAS = [
   { clave: "piezas_sueltas", titulo: "PIEZAS SUELTAS", ancho: 10, ayuda: "Pisos. Existencia inicial." },
   { clave: "unidad", titulo: "UNIDAD", ancho: 10, ayuda: "Otros productos: PIEZA, BULTO, KG, LITRO, ROLLO… (vacío = PIEZA)." },
   { clave: "cantidad", titulo: "CANTIDAD", ancho: 10, ayuda: "Otros productos. Existencia inicial." },
-  { clave: "precio", titulo: "PRECIO", ancho: 11, ayuda: "Pisos: precio por m². Otros: precio por unidad. Con IVA incluido." },
+  { clave: "precio", titulo: "PRECIO", ancho: 11, ayuda: "Pisos: precio por m². Otros: precio por unidad. Sin IVA." },
   { clave: "codigo_barras", titulo: "CÓDIGO DE BARRAS", ancho: 16, ayuda: "Opcional." },
   { clave: "comentarios", titulo: "COMENTARIOS", ancho: 24, ayuda: "Opcional." },
 ] as const;
@@ -148,7 +158,7 @@ export async function generarPlantilla(): Promise<Blob> {
   ins.columns = [{ width: 24 }, { width: 90 }];
   ins.addRow(["Cómo llenar la plantilla"]).font = { bold: true, size: 14 };
   [
-    ["Pisos", "Llena PIEZAS X CAJA y M² X CAJA. El PRECIO es por m²; el sistema calcula el precio por caja y por pieza. La existencia es CAJAS EN EXISTENCIA + PIEZAS SUELTAS."],
+    ["Pisos", "Llena PIEZAS X CAJA y M² X CAJA. El PRECIO es por m², sin IVA; el sistema calcula la caja (m² x caja × precio) y la pieza (área de la pieza × precio). La existencia es CAJAS EN EXISTENCIA + PIEZAS SUELTAS."],
     ["Otros productos", "Deja vacías PIEZAS X CAJA y M² X CAJA. Indica UNIDAD (PIEZA, BULTO, KG…), PRECIO por unidad y CANTIDAD en existencia."],
     ["SKU", "Si lo dejas vacío se genera solo: prefijo de la marca + formato + consecutivo (ej. MAR-6060-001)."],
     ["Existencia", "Solo se carga para productos nuevos, en el almacén que elijas al importar. Si vuelves a importar, se actualizan datos y precios, no la existencia."],

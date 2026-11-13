@@ -1,7 +1,7 @@
 /** Plantilla de productos: generar, leer (incluye celdas combinadas como en la hoja actual) y cálculos. */
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
-import { generarPlantilla, leerExcel, preciosPiso, prefijoSku } from "@/lib/productos";
+import { areaFormato, generarPlantilla, leerExcel, preciosPiso, prefijoSku } from "@/lib/productos";
 
 const archivo = async (b: Blob | ArrayBuffer, nombre = "x.xlsx") =>
   new File([b instanceof Blob ? await b.arrayBuffer() : b], nombre);
@@ -42,5 +42,15 @@ describe("Plantilla de productos", () => {
     expect(p.pieza.toFixed(2)).toBe("22.50");
     expect(prefijoSku("Daltile", "Pisos", "18x50")).toBe("DAL-1850-###");
     expect(prefijoSku("Sin marca", "Adhesivos", "")).toBe("ADH-###");
+  });
+
+  it("la pieza se calcula con su área, no dividiendo la caja ya redondeada", () => {
+    // 1.5 m² / 7 piezas a $116.69: área 0.214286 m² -> $25.00 (caja $175.04 / 7 daría $25.01)
+    const p = preciosPiso("1.5", "7", "116.69")!;
+    expect(p.caja.toFixed(2)).toBe("175.04");
+    expect(p.pieza.toFixed(2)).toBe("25.00");
+    expect(areaFormato("60x60")!.toString()).toBe("0.36");
+    expect(areaFormato("18 X 50 cm")!.toString()).toBe("0.09");
+    expect(areaFormato("Mosaico")).toBeNull();
   });
 });

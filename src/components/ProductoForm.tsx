@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { PRODUCTO_VACIO, ProductoForm as Datos, UNIDADES, aPayload, prefijoSku, preciosPiso, validar } from "@/lib/productos";
+import { PRODUCTO_VACIO, ProductoForm as Datos, UNIDADES, aPayload, areaFormato, prefijoSku, preciosPiso, validar } from "@/lib/productos";
 
 export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; esNuevo: boolean }) {
   const router = useRouter();
@@ -127,26 +127,38 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {campo("piezas_por_caja", "Piezas por caja *", { inputMode: "numeric" })}
               {campo("m2_por_caja", "m² por caja *", { inputMode: "decimal" })}
-              {campo("precio_m2", "Precio por m² (con IVA) *", { inputMode: "decimal" })}
+              {campo("precio_m2", "Precio por m² (sin IVA) *", { inputMode: "decimal" })}
               <div className="text-sm">
                 <div>Precios de venta</div>
                 {calc && !manualCaja ? (
                   <div className="mt-1">
                     Caja: <b>${calc.caja.toFixed(2)}</b> · Pieza: <b>${calc.pieza.toFixed(2)}</b>
-                    <div className="text-xs text-[var(--tenue)]">1 pieza = {calc.m2PorPieza.toDecimalPlaces(4).toString()} m²</div>
+                    <div className="text-xs text-[var(--tenue)]">Área por pieza: {calc.m2PorPieza.toDecimalPlaces(4).toString()} m² (m² por caja ÷ piezas)</div>
                   </div>
                 ) : !manualCaja && <div className="mt-1 text-[var(--tenue)]">Se calculan al llenar caja y precio por m².</div>}
                 <label className="text-xs block mt-1"><input type="checkbox" checked={manualCaja} onChange={(e) => setManualCaja(e.target.checked)} /> Escribir precio de caja y pieza a mano</label>
               </div>
               {manualCaja && <>{campo("precio_caja", "Precio por caja", { inputMode: "decimal" })}{campo("precio_pieza", "Precio por pieza (vacío = caja ÷ piezas)", { inputMode: "decimal" })}</>}
             </div>
+            {(() => {
+              // Aviso si el área por pieza no cuadra con el formato (p. ej. 60x60 = 0.36 m²): suele ser un error de captura
+              const nominal = areaFormato(f.formato);
+              if (!calc || !nominal || nominal.isZero()) return null;
+              const dif = calc.m2PorPieza.minus(nominal).abs().div(nominal);
+              return dif.gt(0.1) ? (
+                <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1">
+                  Revisa: con {f.m2_por_caja} m² y {f.piezas_por_caja} piezas, cada pieza mide {calc.m2PorPieza.toDecimalPlaces(4).toString()} m²,
+                  pero el formato {f.formato} da {nominal.toDecimalPlaces(4).toString()} m² ({nominal.times(f.piezas_por_caja || 0).toDecimalPlaces(4).toString()} m² por caja).
+                </p>
+              ) : null;
+            })()}
             <p className="text-xs text-[var(--tenue)]">La existencia se lleva en piezas: se vende por caja o por pieza y el sistema descuenta las piezas que correspondan.</p>
           </>
         ) : (
           <>
             <div className="barra-seccion">Precio</div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {campo("precio", `Precio por ${f.unidad} (con IVA) *`, { inputMode: "decimal" })}
+              {campo("precio", `Precio por ${f.unidad} (sin IVA) *`, { inputMode: "decimal" })}
             </div>
           </>
         )}
