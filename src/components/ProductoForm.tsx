@@ -73,6 +73,30 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
     finally { setGuardando(false); }
   };
 
+  /** Elimina si nunca se usó; si ya tiene historial ofrece desactivarlo. */
+  const eliminar = async () => {
+    if (!f.id || !window.confirm(`¿Eliminar el producto ${f.sku} · ${f.nombre}? No se puede deshacer.`)) return;
+    setGuardando(true); setMsg(null);
+    try {
+      const { error } = await supabase().rpc("eliminar_producto", { p: { id: f.id } });
+      if (error) {
+        if (/historial|movimientos|documentos|ya se usó/i.test(error.message) && f.activo
+            && window.confirm(`${error.message}
+
+¿Lo desactivo ahora?`)) {
+          const r = await supabase().rpc("guardar_producto", { p: { ...aPayload(manualCaja ? f : { ...f, precio_caja: "", precio_pieza: "" }), activo: false } });
+          if (r.error) throw r.error;
+          router.push(`/compras/productos?guardado=${encodeURIComponent(f.sku)}`);
+          return;
+        }
+        if (/eliminar_producto/.test(error.message)) throw new Error("Falta ejecutar la migración 20261113000017_eliminar_producto.sql en Supabase.");
+        throw error;
+      }
+      router.push(`/compras/productos?eliminado=${encodeURIComponent(f.sku)}`);
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); }
+    finally { setGuardando(false); }
+  };
+
   const campo = (k: keyof Datos, etiqueta: string, extra: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="text-sm">{etiqueta}
       <input className="campo" value={f[k] as string} onChange={(e) => set(k, e.target.value as never)} {...extra} />
@@ -187,14 +211,20 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
               ) : (
                 <label className="text-sm">Cantidad ({f.unidad})<input className="campo" inputMode="decimal" value={ex.cantidad} onChange={(e) => setEx({ ...ex, cantidad: e.target.value })} /></label>
               )}
-        {intento && errores.length > 0 && <ul className="text-sm text-[var(--peligro)]">{errores.map((e) => <li key={e}>{e}</li>)}</ul>}
-        <div className="flex justify-end gap-3 flex-wrap">
-          {esNuevo && <button className="underline" disabled={guardando} onClick={() => guardar(true)}>Guardar y capturar otro</button>}
-          <button className="btn-primario" disabled={guardando} onClick={() => guardar(false)}>{guardando ? "Guardando…" : "Guardar"}</button>
-        </div>
             </div>
           </>
         )}
+
+        {intento && errores.length > 0 && <ul className="text-sm text-[var(--peligro)]">{errores.map((e) => <li key={e}>{e}</li>)}</ul>}
+        <div className="flex justify-between gap-3 flex-wrap items-center">
+          <div>
+            {!esNuevo && <button className="text-[var(--peligro)] underline" disabled={guardando} onClick={eliminar}>Eliminar producto</button>}
+          </div>
+          <div className="flex gap-3 flex-wrap items-center">
+            {esNuevo && <button className="underline" disabled={guardando} onClick={() => guardar(true)}>Guardar y capturar otro</button>}
+            <button className="btn-primario" disabled={guardando} onClick={() => guardar(false)}>{guardando ? "Guardando…" : "Guardar"}</button>
+          </div>
+        </div>
       </section>
     </div>
   );

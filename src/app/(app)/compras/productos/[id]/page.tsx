@@ -37,10 +37,15 @@ export default function EditarProducto({ params }: { params: Promise<{ id: strin
           piezas_por_caja: p.piezas_por_caja?.toString() ?? "", m2_por_caja: p.m2_por_caja ? String(Number(p.m2_por_caja)) : "",
           precio_m2: p.precio_m2 ?? "", codigo_barras: p.codigo_barras ?? "", comentarios: p.comentarios ?? "", activo: p.activo,
           precio: p.presentacion === "unidad" ? precio(base) : "",
-          // Si el precio de caja guardado no coincide con m² × precio m², se edita a mano
-          precio_caja: p.presentacion === "piso" && p.precio_m2 && p.m2_por_caja && caja
-            && Math.abs(Number(precio(caja)) - Math.round(Number(p.m2_por_caja) * Number(p.precio_m2) * 100) / 100) > 0.005 ? precio(caja) : "",
-          precio_pieza: "",
+          // Si el precio guardado no coincide con el calculado desde m² (sin redondeo), se escribió a mano
+          ...(() => {
+            if (p.presentacion !== "piso" || !p.precio_m2 || !p.m2_por_caja || !p.piezas_por_caja) return { precio_caja: "", precio_pieza: "" };
+            const pc = precio(caja), pp = precio(base);
+            const calcCaja = Number(p.m2_por_caja) * Number(p.precio_m2), calcPieza = calcCaja / p.piezas_por_caja;
+            const difCaja = pc !== "" && Math.abs(Number(pc) - calcCaja) > 0.000001;
+            const difPieza = pp !== "" && Math.abs(Number(pp) - (difCaja ? Number(pc) / p.piezas_por_caja : calcPieza)) > 0.000001;
+            return difCaja || difPieza ? { precio_caja: String(Number(pc)), precio_pieza: difPieza ? String(Number(pp)) : "" } : { precio_caja: "", precio_pieza: "" };
+          })(),
         });
       } catch (e) { setError(mensajeError(e)); }
     })();

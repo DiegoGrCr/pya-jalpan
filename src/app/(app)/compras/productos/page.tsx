@@ -34,6 +34,8 @@ export default function Productos() {
   useEffect(() => {
     const g = new URLSearchParams(window.location.search).get("guardado");
     if (g) setMsg({ tipo: "ok", texto: `Producto ${g} guardado.` });
+    const el = new URLSearchParams(window.location.search).get("eliminado");
+    if (el) setMsg({ tipo: "ok", texto: `Producto ${el} eliminado.` });
     (async () => {
       const sb = supabase();
       const [m, c, lp, perm] = await Promise.all([

@@ -79,3 +79,20 @@ describe("importar_productos", () => {
     expect((await q(`select count(*)::int n from productos`))[0].n).toBe(antes);
   });
 });
+
+describe("eliminar_producto", () => {
+  it("elimina un producto sin uso (con sus unidades y precios)", async () => {
+    const r = await rpc(s.admin, "guardar_producto", piso({ nombre: "Piso Para Borrar" }));
+    await rpc(s.admin, "eliminar_producto", { id: r.producto_id });
+    expect((await q(`select count(*)::int n from productos where id = $1`, [r.producto_id]))[0].n).toBe(0);
+    expect((await q(`select count(*)::int n from unidades_venta where producto_id = $1`, [r.producto_id]))[0].n).toBe(0);
+  });
+
+  it("no elimina si ya tiene movimientos de inventario; se puede desactivar", async () => {
+    const imp = await rpc(s.admin, "importar_productos", { idempotency_key: key(), almacen_id: s.almA,
+      filas: [{ fila: 1, ...piso({ nombre: "Piso Con Existencia" }), cajas: 2 }] });
+    const id = imp.productos[0].producto_id;
+    await expect(rpc(s.admin, "eliminar_producto", { id })).rejects.toThrow(/movimientos.*Desactívalo/);
+    expect((await q(`select count(*)::int n from productos where id = $1`, [id]))[0].n).toBe(1);
+  });
+});
