@@ -5,7 +5,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { ROLES, Rol, USUARIO_VALIDO } from "@/lib/usuarios";
 
 interface Sucursal { id: string; codigo: string; nombre: string; activa: boolean }
-interface Usuario { user_id: string; nombre: string; rol: Rol; activo: boolean; usuario: string | null; usuario_sucursales: { sucursal_id: string }[] }
+interface Usuario { user_id: string; nombre: string; rol: Rol; activo: boolean; usuario: string | null; propietario?: boolean; usuario_sucursales: { sucursal_id: string }[] }
 
 const vacio = { usuario: "", nombre: "", contrasena: "", rol: "cajero" as Rol, sucursales: [] as string[] };
 
@@ -20,6 +20,7 @@ export default function Usuarios() {
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
   const [admin, setAdmin] = useState<boolean | null>(null);
+  const [propietario, setPropietario] = useState(false);
   const [yo, setYo] = useState<string | null>(null);
   const [form, setForm] = useState(vacio);
   const [editando, setEditando] = useState<string | null>(null);
@@ -30,11 +31,12 @@ export default function Usuarios() {
   const cargar = useCallback(async () => {
     try {
       const sb = supabase();
-      const [u, s, a, sesion] = await Promise.all([
-        sb.from("perfiles").select("user_id, nombre, rol, activo, usuario, usuario_sucursales(sucursal_id)").order("nombre"),
+      const [u, s, a, sesion, prop] = await Promise.all([
+        sb.from("perfiles").select("user_id, nombre, rol, activo, usuario, propietario, usuario_sucursales(sucursal_id)").order("nombre"),
         sb.from("sucursales").select("id, codigo, nombre, activa").order("codigo"),
         sb.rpc("es_admin"),
         sb.auth.getUser(),
+        sb.rpc("es_propietario"),
       ]);
       if (u.error) {
         if (/usuario/.test(u.error.message) && /exist|could not find/i.test(u.error.message))
@@ -44,6 +46,7 @@ export default function Usuarios() {
       setUsuarios((u.data ?? []) as Usuario[]);
       setSucursales((s.data ?? []) as Sucursal[]);
       setAdmin(a.data === true);
+      setPropietario(prop.data === true);
       setYo(sesion.data.user?.id ?? null);
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); }
   }, []);
@@ -119,7 +122,7 @@ export default function Usuarios() {
           </label>
           <label>Rol
             <select className="campo" value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value as Rol })}>
-              {Object.entries(ROLES).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+              {Object.entries(ROLES).filter(([k]) => propietario || k !== "administrador").map(([k, t]) => <option key={k} value={k}>{t}</option>)}
             </select>
           </label>
           <div className="sm:col-span-2 lg:col-span-4">
@@ -142,13 +145,15 @@ export default function Usuarios() {
             {usuarios.map((u) => {
               const sus = u.usuario_sucursales.map((x) => x.sucursal_id);
               const esYo = u.user_id === yo;
+              // Administradores y propietario solo los administra el propietario
+              const editable = propietario || (u.rol !== "administrador" && !u.propietario);
               if (editando === u.user_id) return (
                 <tr key={u.user_id} className="border-t border-[var(--borde)] align-top">
                   <td className="py-2">{u.usuario ?? <span className="text-[var(--tenue)]">(correo)</span>}</td>
                   <td className="py-1"><input className="campo" value={edicion.nombre} onChange={(e) => setEdicion({ ...edicion, nombre: e.target.value })} /></td>
                   <td className="py-1">
                     <select className="campo" value={edicion.rol} disabled={esYo} onChange={(e) => setEdicion({ ...edicion, rol: e.target.value as Rol })}>
-                      {Object.entries(ROLES).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+                      {Object.entries(ROLES).filter(([k]) => propietario || k !== "administrador").map(([k, t]) => <option key={k} value={k}>{t}</option>)}
                     </select>
                   </td>
                   <td className="py-2">{casillas(edicion.sucursales, (v) => setEdicion({ ...edicion, sucursales: v }))}</td>
@@ -162,14 +167,16 @@ export default function Usuarios() {
               return (
                 <tr key={u.user_id} className="border-t border-[var(--borde)] align-top" style={u.activo ? undefined : { opacity: 0.55 }}>
                   <td className="py-2">{u.usuario ?? <span className="text-[var(--tenue)]">(correo)</span>}</td>
-                  <td className="py-2">{u.nombre}{esYo && <span className="text-xs text-[var(--tenue)]"> (tú)</span>}</td>
+                  <td className="py-2">{u.nombre}{u.propietario && <span className="text-xs text-[var(--tenue)]"> (propietario)</span>}{esYo && <span className="text-xs text-[var(--tenue)]"> (tú)</span>}</td>
                   <td className="py-2">{ROLES[u.rol] ?? u.rol}</td>
                   <td className="py-2">{u.rol === "administrador" && !sus.length ? "Todas" : sus.map(nombreSuc).join(", ") || "—"}</td>
                   <td className="py-2">{u.activo ? "Activo" : "Inactivo"}</td>
                   <td className="py-2 text-right whitespace-nowrap">
+                    {editable && <>
                     <button className="underline mr-3" onClick={() => { setEditando(u.user_id); setEdicion({ nombre: u.nombre, rol: u.rol, sucursales: sus }); }}>Editar</button>
                     <button className="underline mr-3" disabled={trabajando} onClick={() => cambiarContrasena(u)}>Contraseña</button>
-                    {!esYo && <button className="underline" disabled={trabajando} onClick={() => alternarActivo(u)}>{u.activo ? "Desactivar" : "Activar"}</button>}
+                    {!esYo && !u.propietario && <button className="underline" disabled={trabajando} onClick={() => alternarActivo(u)}>{u.activo ? "Desactivar" : "Activar"}</button>}
+                    </>}
                   </td>
                 </tr>
               );

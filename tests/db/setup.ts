@@ -147,7 +147,7 @@ export async function seed(): Promise<Seed> {
   ];
   for (const [uid, nombre, rol] of users) {
     await q(`insert into auth.users (id, email) values ($1, $2)`, [uid, `${uid}@ejemplo.test`]);
-    await q(`insert into perfiles (user_id, nombre, rol) values ($1,$2,$3)`, [uid, nombre, rol]);
+    await q(`insert into perfiles (user_id, nombre, rol, propietario) values ($1,$2,$3,$4)`, [uid, nombre, rol, uid === s.admin]);
   }
   await q(`insert into usuario_sucursales values ($1,$2),($3,$4),($5,$2)`, [s.cajeroA, s.sucA, s.cajeroB, s.sucB, s.almacenista]);
 

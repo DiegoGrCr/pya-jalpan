@@ -27,6 +27,7 @@ export default function Sucursales() {
   const [accesoPara, setAccesoPara] = useState<string | null>(null);
   const [acceso, setAcceso] = useState(nuevoAcceso);
   const [admin, setAdmin] = useState(false);
+  const [propietario, setPropietario] = useState(false);
   const [form, setForm] = useState(vacio);
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
@@ -34,14 +35,16 @@ export default function Sucursales() {
   const cargar = useCallback(async () => {
     try {
       const sb = supabase();
-      const [{ data, error }, perm, us] = await Promise.all([
+      const [{ data, error }, perm, us, prop] = await Promise.all([
         sb.from("sucursales").select("id, codigo, nombre, cp_expedicion, activa, almacenes(id, nombre, multisucursal, activo)").order("codigo"),
         sb.rpc("tiene_permiso", { p_permiso: "administrar" }),
         sb.from("perfiles").select("user_id, usuario, nombre, activo, usuario_sucursales(sucursal_id)").order("nombre"),
+        sb.rpc("es_propietario"),
       ]);
       if (error) throw error;
       setLista((data ?? []) as Sucursal[]);
       setAdmin(perm.data === true);
+      setPropietario(prop.data === true);
       setUsuarios(us.error ? [] : (us.data ?? []) as UsuarioSuc[]);
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); }
   }, []);
@@ -133,7 +136,7 @@ export default function Sucursales() {
                 <td className="py-2">{s.cp_expedicion ?? "—"}</td>
                 <td className="py-2">
                   {s.almacenes.map((a) => <div key={a.id}>{a.nombre}{a.multisucursal ? " (multisucursal)" : ""}</div>)}
-                  {admin && <button onClick={() => agregarAlmacen(s)} className="text-xs underline">+ Agregar almacén</button>}
+                  {propietario && <button onClick={() => agregarAlmacen(s)} className="text-xs underline">+ Agregar almacén</button>}
                 </td>
                 <td className="py-2">
                   {usuarios.filter((u) => u.usuario_sucursales.some((x) => x.sucursal_id === s.id)).map((u) => (
@@ -157,7 +160,7 @@ export default function Sucursales() {
                 </td>
                 <td className="py-2">{s.activa ? "Activa" : "Inactiva"}</td>
                 <td className="py-2 pr-2">
-                  {admin && <button onClick={() => alternarActiva(s)} className="text-xs underline">{s.activa ? "Desactivar" : "Activar"}</button>}
+                  {propietario && <button onClick={() => alternarActiva(s)} className="text-xs underline">{s.activa ? "Desactivar" : "Activar"}</button>}
                 </td>
               </tr>
             ))}
@@ -166,7 +169,7 @@ export default function Sucursales() {
         </table>
       </div>
 
-      {admin ? (
+      {propietario ? (
         <form onSubmit={crear} className="rounded-lg border bg-[var(--panel)] p-4 grid gap-3 sm:grid-cols-2">
           <h2 className="sm:col-span-2 font-semibold">Nueva sucursal</h2>
           {campo("codigo", "Código (1 a 4 letras/números; prefijo de folios)", { required: true, maxLength: 4, placeholder: "Ej. S2" })}
@@ -188,7 +191,7 @@ export default function Sucursales() {
           </div>
         </form>
       ) : (
-        <p className="text-sm opacity-70">Solo un administrador puede crear o modificar sucursales.</p>
+        <p className="text-sm opacity-70">Solo el propietario de la cuenta puede crear sucursales y almacenes.</p>
       )}
     </div>
   );

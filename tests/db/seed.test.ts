@@ -46,5 +46,5 @@ it("rechaza códigos duplicados o inválidos y a usuarios sin permiso", async ()
   const cajero = randomUUID();
   await q(`insert into auth.users (id, email) values ($1, 'cajero@ejemplo.test')`, [cajero]);
   await q(`insert into perfiles (user_id, nombre, rol) values ($1, 'Cajero', 'cajero')`, [cajero]);
-  await expect(rpc(cajero, "crear_sucursal", { codigo: "Z9", nombre: "No" })).rejects.toThrow(/permiso/);
+  await expect(rpc(cajero, "crear_sucursal", { codigo: "Z9", nombre: "No" })).rejects.toThrow(/propietario/);
 });

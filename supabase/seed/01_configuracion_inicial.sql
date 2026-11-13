@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Configuración inicial (ejecutar UNA vez en el SQL Editor de Supabase,
--- después de las migraciones 0001–0007).
+-- después de TODAS las migraciones).
 --
 -- Crea la sucursal PRINCIPAL (con almacén, caja y series) y da de alta al
 -- administrador. Las demás sucursales se crean desde el sistema:
@@ -14,8 +14,9 @@
 begin;
 
 -- Administrador (usuario creado en Authentication)
-insert into perfiles (user_id, nombre, rol)
-select id, 'Administrador', 'administrador' from auth.users where email = 'admin@ejemplo.com'  -- ← correo del administrador
+-- Es el PROPIETARIO de la cuenta: el único que puede crear sucursales, almacenes y administradores.
+insert into perfiles (user_id, nombre, rol, propietario)
+select id, 'Administrador', 'administrador', true from auth.users where email = 'admin@ejemplo.com'  -- ← correo del administrador
 on conflict (user_id) do nothing;
 
 do $$ begin
