@@ -21,7 +21,7 @@ interface Pago { forma: Forma; importe: string; referencia: string }
 interface Cliente { id: string; nombre: string; rfc: string | null; es_publico_general: boolean; lista_precios_id: string | null; limite_credito: string; dias_credito: number }
 interface Almacen { id: string; nombre: string; sucursal_id: string; multisucursal: boolean }
 interface Sucursal { id: string; codigo: string; nombre: string; cp_expedicion: string | null }
-interface Captura { clave: string; sucursalId: string; almacenId: string; cliente: Cliente | null; tipo: "contado" | "credito"; lineas: Linea[]; pagos: Pago[]; comentarios: string }
+interface Captura { clave: string; sucursalId: string; almacenId: string; cliente: Cliente | null; tipo: "contado" | "credito"; lineas: Linea[]; pagos: Pago[]; comentarios: string; sinIva?: boolean }
 
 interface FilaUnidad { id: string; nombre: string; factor: string; es_base: boolean; orden: number; precios?: { precio: string; lista_id: string }[] }
 interface FilaProducto extends Omit<ProductoVenta, "unidades"> { unidades_venta: FilaUnidad[] }
@@ -29,7 +29,7 @@ interface FilaProducto extends Omit<ProductoVenta, "unidades"> { unidades_venta:
 const CLAVE_LOCAL = "captura-venta-v1";
 const pagoInicial = (): Pago[] => [{ forma: "efectivo", importe: "", referencia: "" }];
 const capturaNueva = (sucursalId = "", almacenId = "", cliente: Cliente | null = null): Captura =>
-  ({ clave: crypto.randomUUID(), sucursalId, almacenId, cliente, tipo: "contado", lineas: [], pagos: pagoInicial(), comentarios: "" });
+  ({ clave: crypto.randomUUID(), sucursalId, almacenId, cliente, tipo: "contado", lineas: [], pagos: pagoInicial(), comentarios: "", sinIva: true });
 
 export default function CapturarVenta() {
   const [sucursales, setSucursales] = useState<Sucursal[]>([]);
@@ -151,10 +151,12 @@ export default function CapturarVenta() {
   }, [textoCliente]);
 
   // ---------- importes ----------
+  // Remisión sin IVA (predeterminado): el precio es el importe final y la tasa de IVA queda en 0
+  const sinIva = c.sinIva !== false;
   const importes = useMemo(() => c.lineas.map((l) => {
-    try { return calcularPartida(l.cantidad || 0, l.precio || 0, l.descuento || 0, l.producto.iva_tasa, l.producto.ieps_tasa, lista?.incluye ?? true); }
+    try { return calcularPartida(l.cantidad || 0, l.precio || 0, l.descuento || 0, sinIva ? "0" : l.producto.iva_tasa, l.producto.ieps_tasa, lista?.incluye ?? true); }
     catch { return null; }
-  }), [c.lineas, lista]);
+  }), [c.lineas, lista, sinIva]);
   const suma = (k: "subtotal" | "iva" | "total") => importes.reduce((s, i) => s.plus(i?.[k] ?? 0), new Decimal(0));
   const subtotal = suma("subtotal"), iva = suma("iva"), total = suma("total");
   const descuento = c.lineas.reduce((s, l) => s.plus(l.descuento || 0), new Decimal(0));
@@ -183,7 +185,7 @@ export default function CapturarVenta() {
     try {
       const { data, error } = await supabase().rpc("confirmar_venta", { p: {
         idempotency_key: c.clave, sucursal_id: c.sucursalId, almacen_id: c.almacenId, lista_id: lista?.id,
-        cliente_id: c.cliente?.id ?? null, tipo: c.tipo, comentarios: c.comentarios || null,
+        cliente_id: c.cliente?.id ?? null, tipo: c.tipo, comentarios: c.comentarios || null, sin_iva: sinIva,
         partidas: c.lineas.map((l) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
           precio_unitario: l.precio, descuento: l.descuento || 0, entregar_ahora: l.entregarAhora })),
         pagos: pagosAplicados.filter((p) => Number(p.importe) > 0).map((p) => ({ forma: p.forma, importe: p.importe, referencia: p.referencia || null })),
@@ -405,7 +407,12 @@ export default function CapturarVenta() {
             <dl className="grid grid-cols-[1fr_auto] gap-y-1">
               <dt>Subtotal:</dt><dd className="text-right">{subtotal.toFixed(2)}</dd>
               <dt>Descuento:</dt><dd className="text-right">{descuento.toFixed(2)}</dd>
-              <dt>I.V.A.:</dt><dd className="text-right">{iva.toFixed(2)}</dd>
+              <dt>
+                I.V.A.:
+                <label className="ml-2 text-xs whitespace-nowrap" title="Desmarca solo si la venta debe llevar IVA">
+                  <input type="checkbox" checked={sinIva} onChange={(e) => setC((v) => ({ ...v, sinIva: e.target.checked }))} /> Sin IVA
+                </label>
+              </dt><dd className="text-right">{iva.toFixed(2)}</dd>
               <dt className="font-semibold text-base">Total (MXN):</dt><dd className="text-right font-semibold text-base">{total.toFixed(2)}</dd>
               <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{pagado.toFixed(2)}</dd>
               {c.tipo === "contado"

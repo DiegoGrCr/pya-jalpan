@@ -155,7 +155,7 @@ export default function PuntoDeVenta() {
 
   const importes = useMemo(() => carrito.lineas.map((l) => {
     try {
-      return calcularPartida(l.cantidad || 0, l.precio || 0, l.descuento || 0, l.producto.iva_tasa, l.producto.ieps_tasa, !!ctx?.incluyeImpuestos);
+      return calcularPartida(l.cantidad || 0, l.precio || 0, l.descuento || 0, "0", l.producto.ieps_tasa, !!ctx?.incluyeImpuestos); // remisión sin IVA
     } catch { return null; }
   }), [carrito.lineas, ctx]);
 
@@ -176,7 +176,7 @@ export default function PuntoDeVenta() {
         p: {
           idempotency_key: carrito.idempotencyKey,
           sucursal_id: ctx.sucursalId, almacen_id: ctx.almacenId, lista_id: ctx.listaId,
-          cliente_id: carrito.clienteId, tipo: carrito.tipo, cotizacion_id: carrito.cotizacionId,
+          cliente_id: carrito.clienteId, tipo: carrito.tipo, cotizacion_id: carrito.cotizacionId, sin_iva: true,
           partidas: carrito.lineas.map((l) => ({
             producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
             precio_unitario: l.precio, descuento: l.descuento || 0, entregar_ahora: l.entregarAhora,
