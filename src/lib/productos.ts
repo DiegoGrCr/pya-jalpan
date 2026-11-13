@@ -88,7 +88,6 @@ export function aPayload(f: ProductoForm): Record<string, unknown> {
 /** Errores de captura (antes de enviar). */
 export function validar(f: ProductoForm): string[] {
   const e: string[] = [];
-  if (!f.nombre.trim()) e.push("Falta la descripción.");
   if (f.presentacion === "piso") {
     const pz = num(f.piezas_por_caja);
     if (!pz || pz.lte(0) || !pz.isInteger()) e.push("Piezas por caja: número entero mayor a 0.");
@@ -106,7 +105,7 @@ export const COLUMNAS = [
   { clave: "categoria", titulo: "CATEGORÍA", ancho: 14, ayuda: "Opcional. Ej. Pisos, Adhesivos, Mallas." },
   { clave: "formato", titulo: "FORMATO", ancho: 10, ayuda: "Pisos. Ej. 60x60. Se usa en el SKU." },
   { clave: "sku", titulo: "SKU", ancho: 16, ayuda: "Vacío = se genera solo (MARCA-FORMATO-###)." },
-  { clave: "nombre", titulo: "DESCRIPCIÓN", ancho: 34, ayuda: "Obligatorio." },
+  { clave: "nombre", titulo: "DESCRIPCIÓN", ancho: 34, ayuda: "Opcional. Si va vacía, el nombre será marca + formato + SKU." },
   { clave: "piezas_por_caja", titulo: "PIEZAS X CAJA", ancho: 10, ayuda: "Pisos. Si viene con M² X CAJA, el producto es piso." },
   { clave: "m2_por_caja", titulo: "M² X CAJA", ancho: 10, ayuda: "Pisos." },
   { clave: "cajas", titulo: "CAJAS EN EXISTENCIA", ancho: 12, ayuda: "Pisos. Existencia inicial." },
@@ -196,12 +195,12 @@ export async function leerExcel(archivo: File): Promise<HojaImport[]> {
   const hojas: HojaImport[] = [];
   wb.eachSheet((ws) => {
     if (/^instrucciones$/i.test(ws.name)) return;
-    // Encabezado: primera de las 5 primeras filas que tenga DESCRIPCIÓN
+    // Encabezado: primera de las 5 primeras filas que tenga DESCRIPCIÓN o SKU
     let filaEnc = 0; const mapa = new Map<number, Clave>();
     for (let r = 1; r <= Math.min(5, ws.rowCount) && !filaEnc; r++) {
       const m = new Map<number, Clave>();
       ws.getRow(r).eachCell({ includeEmpty: false }, (cell, col) => { const k = ALIAS[normal(textoCelda(cell))]; if (k && ![...m.values()].includes(k)) m.set(col, k); });
-      if ([...m.values()].includes("nombre")) { filaEnc = r; m.forEach((v, k) => mapa.set(k, v)); }
+      if ([...m.values()].some((k) => k === "nombre" || k === "sku")) { filaEnc = r; m.forEach((v, k) => mapa.set(k, v)); }
     }
     if (!filaEnc) return;
     const claves = [...mapa.values()];
@@ -210,7 +209,9 @@ export async function leerExcel(archivo: File): Promise<HojaImport[]> {
       const row = ws.getRow(r);
       const d: Record<string, string> = {};
       mapa.forEach((k, col) => { d[k] = textoCelda(row.getCell(col)); });
-      if (!d.nombre) continue;
+      // Fila de producto: trae descripción, SKU o algún dato (marca, categoría y formato solos no cuentan:
+      // el formato puede venir de una celda combinada)
+      if (!["nombre", "sku", "piezas_por_caja", "m2_por_caja", "cajas", "piezas_sueltas", "cantidad", "precio", "codigo_barras"].some((k) => d[k])) continue;
       filas.push(armarFila(r, d));
     }
     hojas.push({ nombre: ws.name, tieneMarca: claves.includes("marca"), tieneCategoria: claves.includes("categoria"), filas, columnas: claves });
@@ -224,8 +225,10 @@ function armarFila(fila: number, d: Record<string, string>): FilaImport {
   const piezas = n("piezas_por_caja"), m2 = n("m2_por_caja"), precio = n("precio");
   const cajas = n("cajas"), sueltas = n("piezas_sueltas"), cantidad = n("cantidad");
   const esPiso = !!(piezas && m2);
+  // Sin descripción: se carga igual; el sistema le pone de nombre marca + formato + SKU
+  if (!d.nombre) avisos.push("sin descripción: el nombre será marca + formato + SKU");
   const datos: Record<string, unknown> = {
-    fila, nombre: d.nombre, sku: d.sku || null, marca: d.marca || null, categoria: d.categoria || null,
+    fila, nombre: d.nombre || "", sku: d.sku || null, marca: d.marca || null, categoria: d.categoria || null,
     formato: d.formato || null, codigo_barras: d.codigo_barras || null, comentarios: d.comentarios || null,
   };
   if (esPiso) {

@@ -40,7 +40,7 @@ export default function ImportarProductos() {
     setLeyendo(true); setMsg(null); setHojas([]);
     try {
       const h = await leerExcel(f);
-      if (!h.length) throw new Error("No encontré ninguna pestaña con la columna DESCRIPCIÓN. Usa la plantilla o revisa los encabezados.");
+      if (!h.length) throw new Error("No encontré ninguna pestaña con la columna DESCRIPCIÓN o SKU. Usa la plantilla o revisa los encabezados.");
       setHojas(h);
       setArchivo(f.name);
       setConfig(Object.fromEntries(h.map((x) => [x.nombre, { incluir: x.filas.length > 0, uso: x.tieneMarca ? (x.tieneCategoria ? "nada" : "categoria") : "marca" } as Config])));
@@ -167,7 +167,7 @@ export default function ImportarProductos() {
                     return (
                       <tr key={f.fila} className="border-t border-[var(--borde)]" style={f.errores.length ? { background: "#fdecec" } : f.avisos.length ? { background: "#fff7e0" } : undefined}>
                         <td className="p-1">{f.fila}</td>
-                        <td>{d.nombre}{d.sku ? <span className="text-xs text-[var(--tenue)]"> · {d.sku}</span> : ""}</td>
+                        <td>{d.nombre || <i className="text-[var(--tenue)]">(sin descripción)</i>}{d.sku ? <span className="text-xs text-[var(--tenue)]"> · {d.sku}</span> : ""}</td>
                         <td>{d.marca ?? "—"}</td><td>{d.categoria ?? "—"}</td><td>{d.formato ?? "—"}</td>
                         <td>{piso ? `Piso ${d.piezas_por_caja} pz / ${d.m2_por_caja} m²` : d.unidad}</td>
                         <td>{piso ? (d.precio_m2 ? `$${d.precio_m2}/m²` : "—") : (d.precio ? `$${d.precio}` : "—")}</td>

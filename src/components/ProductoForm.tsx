@@ -119,8 +119,8 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="text-sm lg:col-span-2">Descripción *
-            <input className={`campo ${intento && !f.nombre.trim() ? "campo-requerido" : ""}`} value={f.nombre} onChange={(e) => set("nombre", e.target.value)} placeholder="Ej. Piso Madera Gris" />
+          <label className="text-sm lg:col-span-2">Descripción
+            <input className="campo" value={f.nombre} onChange={(e) => set("nombre", e.target.value)} placeholder="Ej. Piso Madera Gris (vacío = marca + formato + SKU)" />
           </label>
           <label className="text-sm">Marca
             <input className="campo" list="lista-marcas" value={f.marca} onChange={(e) => set("marca", e.target.value)} placeholder="Ej. Daltile" />

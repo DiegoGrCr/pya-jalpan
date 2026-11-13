@@ -1,7 +1,7 @@
 -- =============================================================================
--- 0018 · Productos sin precio
+-- 0018 · Productos sin precio y sin descripción
 -- Un producto se puede dar de alta (formulario o Excel) sin precio: se carga igual y el
--- precio se captura después. Al vender, un renglón con precio 0 no se deja confirmar.
+-- precio se captura después. Sin descripción, el nombre es marca + formato + SKU. Al vender, un renglón con precio 0 no se deja confirmar.
 -- Si al reimportar una fila viene sin precio, se conserva el precio que ya tenía.
 -- Se puede ejecutar más de una vez.
 -- =============================================================================
@@ -25,7 +25,6 @@ declare
   v_nuevo boolean := v_id is null;
 begin
   perform exigir(tiene_permiso('editar_productos'), 'No tienes permiso para dar de alta o editar productos');
-  perform exigir(length(v_nombre) > 0, 'La descripción del producto es obligatoria');
   perform exigir(v_pres in ('piso','unidad'), 'Presentación no válida');
   perform exigir(coalesce((p->>'iva_tasa')::numeric, 0) in (0, 0.08, 0.16), 'Tasa de IVA no válida');
   select id into v_lista from listas_precios where predeterminada;
@@ -50,6 +49,9 @@ begin
     v_sku := case when v_nuevo then generar_sku(v_marca, v_cat, v_formato) else v_ant.sku end;
   end if;
   perform exigir(v_sku ~ '^[A-Z0-9][A-Z0-9._/-]{0,39}$', 'SKU no válido: ' || v_sku);
+  if length(v_nombre) = 0 then   -- sin descripción: marca + formato + SKU
+    v_nombre := concat_ws(' ', (select nombre from marcas where id = v_marca), v_formato, v_sku);
+  end if;
   perform exigir(not exists (select 1 from productos where sku = v_sku and id is distinct from v_id), 'Ya existe un producto con el SKU ' || v_sku);
   perform exigir(nullif(trim(p->>'codigo_barras'),'') is null or not exists (
                    select 1 from productos where codigo_barras = trim(p->>'codigo_barras') and id is distinct from v_id),

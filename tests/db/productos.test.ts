@@ -108,3 +108,11 @@ describe("productos sin precio", () => {
     expect(p.precio).toBe("120.000000");
   });
 });
+
+describe("productos sin descripción", () => {
+  it("el nombre queda como marca + formato + SKU", async () => {
+    const r = await rpc(s.admin, "guardar_producto", piso({ nombre: "", marca: "Marca Nombre", formato: "33x33" }));
+    const [p] = await q(`select nombre from productos where id = $1`, [r.producto_id]);
+    expect(p.nombre).toBe(`Marca Nombre 33x33 ${r.sku}`);
+  });
+});

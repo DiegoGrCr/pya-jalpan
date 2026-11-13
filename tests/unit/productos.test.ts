@@ -52,6 +52,19 @@ describe("Plantilla de productos", () => {
     expect(c.datos).toMatchObject({ presentacion: "unidad", unidad: "PIEZA", precio: null });
   });
 
+  it("filas sin descripción se cargan si traen SKU u otros datos", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("MarcaW");
+    ws.addRow(["FORMATO", "SKU", "DESCRIPCIÓN", "PIEZAS X CAJA", "M² X CAJA", "PRECIO"]);
+    ws.addRow(["60x60", "EJ-6060-001", "", 4, 1.44, 300]);
+    ws.addRow(["", "", "", "", "", ""]);
+    ws.mergeCells("A2:A3");
+    const filas = (await leerExcel(await archivo(await wb.xlsx.writeBuffer() as ArrayBuffer)))[0].filas;
+    expect(filas.length).toBe(1);   // la fila vacía (solo con formato combinado) no cuenta
+    expect(filas[0].errores).toEqual([]);
+    expect(filas[0].datos).toMatchObject({ nombre: "", sku: "EJ-6060-001", presentacion: "piso" });
+  });
+
   it("precios de piso desde m² y vista previa de SKU", () => {
     const p = preciosPiso("0.99", "11", "250")!;
     expect(p.caja.toString()).toBe("247.5");
