@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { useRouter } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { ProductoVenta, UnidadVenta, aBase, calcularPartida, cantidadValida, fmtCantidad, medida, unidadesNecesarias } from "@/lib/unidades";
+import { ProductoVenta, UnidadVenta, aBase, ajustarCantidad, calcularPartida, cantidadValida, fmtCantidad, medida, unidadesNecesarias } from "@/lib/unidades";
 
 type Forma = "efectivo" | "transferencia" | "tarjeta_debito" | "tarjeta_credito";
 const FORMAS: Record<Forma, string> = {
@@ -170,7 +170,7 @@ export default function CapturarVenta() {
   const pagado = pagosAplicados.reduce((s, p) => s.plus(p.importe || 0), new Decimal(0));
   const cambio = Decimal.max(pagado.minus(total), 0);
   const faltaPagar = Decimal.max(total.minus(pagado), 0);
-  const invalidas = c.lineas.filter((l) => !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion));
+  const invalidas = c.lineas.filter((l) => !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion, l.producto.unidades.find((x) => x.id === l.unidadId)?.factor ?? 1));
 
   const motivos: string[] = [];
   if (!enLinea) motivos.push("No hay conexión a internet.");
@@ -303,7 +303,7 @@ export default function CapturarVenta() {
                 const ex = existencias[l.producto.id];
                 const exU = ex === undefined ? null : new Decimal(ex).div(u.factor);
                 const sinEx = l.producto.tipo === "producto" && ex !== undefined && aBase(l.cantidad || 0, u.factor).gt(ex);
-                const invalida = !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion);
+                const invalida = !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion, u.factor);
                 const med = medida(l.producto);
                 return (
                   <tr key={l.uid} className="border-t border-[var(--borde)] align-top" style={{ background: i % 2 ? "transparent" : "#f7f9fb" }}>
@@ -325,19 +325,22 @@ export default function CapturarVenta() {
                           {sinEx && " · se venderá sin existencia"}
                         </div>
                       )}
-                      {(!u.es_base || med.unidad !== l.producto.unidad_base) && <div className="text-xs text-[var(--tenue)]">= {fmtCantidad(aBase(l.cantidad || 0, u.factor).times(med.porBase))} {med.unidad}</div>}
+                      {u.nombre === med.unidad
+                        ? <div className="text-xs text-[var(--tenue)]">= {fmtCantidad(aBase(l.cantidad || 0, u.factor), 2)} {l.producto.unidad_base}</div>
+                        : (!u.es_base || med.unidad !== l.producto.unidad_base) && <div className="text-xs text-[var(--tenue)]">= {fmtCantidad(aBase(l.cantidad || 0, u.factor).times(med.porBase))} {med.unidad}</div>}
                     </td>
                     <td className="py-1">
                       <input className={`campo ${invalida ? "campo-requerido" : ""}`} inputMode="decimal" value={l.cantidad}
-                        onChange={(e) => editar(l.uid, { cantidad: e.target.value })} />
-                      {(!u.es_base || med.unidad !== l.producto.unidad_base) && (
+                        onChange={(e) => editar(l.uid, { cantidad: e.target.value })}
+                        onBlur={() => { const a = ajustarCantidad(l.cantidad, u, l.producto); if (a !== l.cantidad) editar(l.uid, { cantidad: a }); }} />
+                      {(!u.es_base || med.unidad !== l.producto.unidad_base) && u.nombre !== med.unidad && (
                         <button className="text-xs underline" title={`Calcular ${u.nombre} a partir de ${med.unidad}`} onClick={() => {
                           const req = window.prompt(`¿Cuántos ${med.unidad} necesita el cliente?`);
                           if (req && !isNaN(Number(req)) && Number(req) > 0)
                             editar(l.uid, { cantidad: unidadesNecesarias(new Decimal(req).div(med.porBase), u, l.producto.permite_fraccion).unidades.toString() });
                         }}>desde {med.unidad}</button>
                       )}
-                      {invalida && <div className="text-xs text-[var(--peligro)]">Solo {u.nombre} completas</div>}
+                      {invalida && <div className="text-xs text-[var(--peligro)]">{u.nombre === "M2" ? "Debe equivaler a piezas completas" : `Solo ${u.nombre} completas`}</div>}
                     </td>
                     <td className="py-1"><input className="campo" inputMode="decimal" value={l.precio} onChange={(e) => editar(l.uid, { precio: e.target.value })} /></td>
                     <td className="py-2 text-right underline decoration-dotted">{importes[i] ? importes[i]!.total.toFixed(2) : "—"}</td>

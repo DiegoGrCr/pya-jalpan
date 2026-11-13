@@ -83,3 +83,16 @@ describe("Plantilla de productos", () => {
     expect(areaFormato("Mosaico")).toBeNull();
   });
 });
+
+import { ajustarCantidad, cantidadValida } from "@/lib/unidades";
+describe("Cantidades en M2", () => {
+  const p = { permite_fraccion: false, m2_por_caja: "1.08", piezas_por_caja: 12 };
+  const m2 = { nombre: "M2", factor: "11.11111111" };
+  it("ajusta hacia arriba a piezas completas", () => {
+    expect(ajustarCantidad("10", m2, p)).toBe("10.08");
+    expect(ajustarCantidad("10.08", m2, p)).toBe("10.08");
+    expect(cantidadValida("10", false, m2.factor)).toBe(false);
+    expect(cantidadValida("10.08", false, m2.factor)).toBe(true);
+    expect(cantidadValida("3", false, "12")).toBe(true);
+  });
+});

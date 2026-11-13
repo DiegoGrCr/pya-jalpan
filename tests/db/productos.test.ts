@@ -20,6 +20,7 @@ describe("guardar_producto", () => {
     expect(u).toEqual([
       { nombre: "CAJA", factor: "11.00000000", es_base: false, precio: "247.500000" },
       { nombre: "PIEZA", factor: "1.00000000", es_base: true, precio: "22.500000" },
+      { nombre: "M2", factor: "11.11111111", es_base: false, precio: "250.000000" },
     ]);
     const [p] = await q(`select unidad_base, permite_fraccion, iva_tasa::text from productos where id = $1`, [r.producto_id]);
     expect(p).toEqual({ unidad_base: "PIEZA", permite_fraccion: false, iva_tasa: "0.0000" });
@@ -36,7 +37,7 @@ describe("guardar_producto", () => {
     const r = await rpc(s.admin, "guardar_producto", piso({ nombre: "Piso Decimales", piezas_por_caja: 7, m2_por_caja: 1.5, precio_m2: 116.69 }));
     const u = await q(`select u.nombre, pr.precio::text from unidades_venta u join precios pr on pr.unidad_venta_id = u.id
                         where u.producto_id = $1 order by u.orden`, [r.producto_id]);
-    expect(u).toEqual([{ nombre: "CAJA", precio: "175.035000" }, { nombre: "PIEZA", precio: "25.005000" }]);
+    expect(u).toEqual([{ nombre: "CAJA", precio: "175.035000" }, { nombre: "PIEZA", precio: "25.005000" }, { nombre: "M2", precio: "116.690000" }]);
   });
 
   it("edita precios y piezas; no permite cambiar la presentación", async () => {

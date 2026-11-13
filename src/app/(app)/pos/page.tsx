@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import {
-  ProductoVenta, UnidadVenta, aBase, calcularPartida, cantidadValida, equivalencia, fmtCantidad, mxn, mxnPrecio, unidadesNecesarias,
+  ProductoVenta, UnidadVenta, aBase, ajustarCantidad, calcularPartida, cantidadValida, equivalencia, fmtCantidad, mxn, mxnPrecio, unidadesNecesarias,
 } from "@/lib/unidades";
 
 interface Linea {
@@ -167,7 +167,7 @@ export default function PuntoDeVenta() {
   const pagado = pagosAplicados.reduce((s, p) => s.plus(p.importe || 0), new Decimal(0));
   const cambio = Decimal.max(pagado.minus(total), 0);
   // Cantidad no válida o sin precio (productos dados de alta sin precio no se venden en $0)
-  const lineasInvalidas = carrito.lineas.filter((l) => !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion) || !(Number(l.precio) > 0));
+  const lineasInvalidas = carrito.lineas.filter((l) => !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion, l.producto.unidades.find((x) => x.id === l.unidadId)?.factor ?? 1) || !(Number(l.precio) > 0));
 
   const confirmar = async () => {
     if (!ctx || enviando) return;
@@ -249,7 +249,7 @@ export default function PuntoDeVenta() {
               const u = l.producto.unidades.find((x) => x.id === l.unidadId)!;
               const ex = existencias[l.producto.id];
               const sinExistencia = l.producto.tipo === "producto" && ex !== undefined && aBase(l.cantidad || 0, u.factor).gt(ex);
-              const invalida = !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion);
+              const invalida = !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion, u.factor);
               return (
                 <tr key={l.uid} className="border-t">
                   <td className="py-2">
@@ -263,11 +263,12 @@ export default function PuntoDeVenta() {
                   </td>
                   <td>
                     <input value={l.cantidad} inputMode="decimal" onChange={(e) => actualizar(l.uid, { cantidad: e.target.value })}
+                      onBlur={() => { const a = ajustarCantidad(l.cantidad, u, l.producto); if (a !== l.cantidad) actualizar(l.uid, { cantidad: a }); }}
                       className={`w-20 border rounded px-1 py-1 bg-[var(--panel)] ${invalida ? "border-red-600" : ""}`} />
                     <button type="button" onClick={() => calculadora(l)} title={`Calcular desde ${l.producto.unidad_base}`} className="ml-1 text-xs underline">
                       {l.producto.unidad_base}→{u.nombre}
                     </button>
-                    {invalida && <div className="text-xs text-red-600">Solo {u.nombre} completas</div>}
+                    {invalida && <div className="text-xs text-red-600">{u.nombre === "M2" ? "Debe equivaler a piezas completas" : `Solo ${u.nombre} completas`}</div>}
                   </td>
                   <td className="whitespace-nowrap">{equivalencia(l.cantidad || 0, u, l.producto.unidad_base)}</td>
                   <td><input value={l.precio} onChange={(e) => actualizar(l.uid, { precio: e.target.value })} className="w-24 border rounded px-1 py-1 bg-[var(--panel)]" /></td>

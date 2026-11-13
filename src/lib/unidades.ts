@@ -57,11 +57,32 @@ export function unidadesNecesarias(
   return { unidades, base: aBase(unidades, unidad.factor) };
 }
 
-/** ¿La cantidad es válida para el producto? (entera si solo se venden unidades completas) */
-export function cantidadValida(cantidad: Decimal.Value, permiteFraccion: boolean): boolean {
-  const c = D(cantidad);
-  if (c.lte(0)) return false;
-  return permiteFraccion || c.isInteger();
+/**
+ * ¿La cantidad es válida? Si el producto no admite fracciones, la cantidad debe equivaler a
+ * unidades base completas (p. ej. 10.08 M2 = 112 piezas), igual que public.cantidad_base_de.
+ */
+export function cantidadValida(cantidad: Decimal.Value, permiteFraccion: boolean, factor: Decimal.Value = 1): boolean {
+  let c: Decimal;
+  try { c = D(cantidad); } catch { return false; }
+  if (!c.isFinite() || c.lte(0)) return false;
+  if (permiteFraccion) return true;
+  const b = c.times(factor);
+  return b.minus(b.round()).abs().lte(0.0005);
+}
+
+/**
+ * Ajusta una cantidad a unidades base completas, hacia arriba. Para M2 de pisos usa el área
+ * exacta de la pieza: 10 M2 con piezas de 0.09 m² -> 10.08 (112 piezas).
+ */
+export function ajustarCantidad(cantidad: string, unidad: Pick<UnidadVenta, "nombre" | "factor">, p: Pick<ProductoVenta, "permite_fraccion" | "m2_por_caja" | "piezas_por_caja">): string {
+  if (p.permite_fraccion || cantidadValida(cantidad, false, unidad.factor)) return cantidad;
+  let c: Decimal;
+  try { c = D(cantidad); } catch { return cantidad; }
+  if (!c.isFinite() || c.lte(0)) return cantidad;
+  const piezas = c.times(unidad.factor).minus(0.0005).ceil();
+  const porUnidad = unidad.nombre === "M2" && p.m2_por_caja && p.piezas_por_caja
+    ? D(p.m2_por_caja).div(p.piezas_por_caja) : D(1).div(unidad.factor);
+  return piezas.times(porUnidad).toDecimalPlaces(6).toString();
 }
 
 /** Formato de cantidad para pantalla: hasta `dec` decimales, sin ceros sobrantes. */
