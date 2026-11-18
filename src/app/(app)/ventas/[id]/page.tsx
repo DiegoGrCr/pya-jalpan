@@ -11,7 +11,7 @@ import { useParams } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtCantidad, fmtImporte, fmtPrecio, mxn, nombreConCaja } from "@/lib/unidades";
 import { copiarImagen, pdfAPng } from "@/lib/notaImagen";
-import { FORMAS_PAGO, VentaDoc, cargarVenta, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
+import { FORMAS_PAGO, VentaDoc, archivoDe, cargarVenta, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
 
 type Formato = "carta" | "ticket80" | "ticket58";
 const CLAVE_TICKET = "formato-ticket";
@@ -87,7 +87,7 @@ export default function DetalleVenta() {
     if (params.get("nueva")) setMsg({ tipo: "ok", texto: `Venta guardada.${cambio && Number(cambio) > 0 ? ` Cambio: ${mxn(cambio)}.` : ""}` });
   }, []);
 
-  const nombreArchivo = (f: Formato) => `${v ? folioDe(v) : "venta"}${f === "carta" ? "" : "-ticket"}.pdf`;
+  const nombreArchivo = (f: Formato) => `${v ? archivoDe(v) : "Remision"}${f === "carta" ? "" : " ticket"}.pdf`;
 
   const conPdf = async (f: Formato, fn: (b: Blob) => void | Promise<void>) => {
     if (!v) return;
@@ -166,7 +166,7 @@ export default function DetalleVenta() {
           : { tipo: "error", texto: "Este navegador no permite copiar imágenes. Usa Descargar imagen." });
       } else {
         const url = URL.createObjectURL(png);
-        Object.assign(document.createElement("a"), { href: url, download: `${folioDe(v)}.png` }).click();
+        Object.assign(document.createElement("a"), { href: url, download: `${archivoDe(v)}.png` }).click();
         setTimeout(() => URL.revokeObjectURL(url), 10_000);
       }
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
@@ -359,7 +359,7 @@ export default function DetalleVenta() {
                         <td className="py-2 pr-3">{nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}
                           {p.unidad !== p.unidad_base && <div className="text-xs text-[var(--tenue)]">= {fmtCantidad(p.cantidad_base)} {p.unidad_base}</div>}
                           {p.comentario && <div className="text-xs italic">{p.comentario}</div>}
-                          {p.almacen && p.almacen !== v.almacen && <div className="text-xs font-semibold" style={{ color: "var(--acento)" }}>Sale de: {p.almacen}</div>}
+                          {p.almacen && <div className={`text-xs ${p.almacen !== v.almacen ? "font-semibold" : ""}`} style={{ color: "var(--acento)" }}>Sale de: {p.almacen}</div>}
                           {p.vendida_sin_existencia && <div className="text-xs text-[var(--peligro)]">Vendida sin existencia suficiente</div>}
                         </td>
                         <td className="py-2 pr-3 text-right">{fmtCantidad(p.cantidad)}</td>

@@ -175,6 +175,9 @@ export default function Sucursales() {
                     <>
                       <div className="font-mono">{serieVenta(s) ? `${serieVenta(s)!.prefijo} ${serieVenta(s)!.siguiente}` : "—"}</div>
                       <div className="text-xs opacity-60">próxima remisión</div>
+                      {(!serieVenta(s) || /^\d+V$/.test(serieVenta(s)!.prefijo)) && (
+                        <div className="text-xs text-amber-700">Serie automática: pon la abreviación de la sucursal</div>
+                      )}
                       {admin && <button className="text-xs underline" onClick={() => { const sv = serieVenta(s); setFolioPara(s.id); setFolio({ prefijo: sv?.prefijo ?? "", siguiente: "1" }); }}>Cambiar</button>}
                     </>
                   )}

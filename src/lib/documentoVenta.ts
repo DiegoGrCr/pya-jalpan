@@ -51,6 +51,8 @@ export const EMPRESA_VACIA: EmpresaDoc = {
 };
 
 export const folioDe = (v: Pick<VentaDoc, "serie" | "folio">) => `${v.serie} ${v.folio}`;   // "AR 14"
+/** Nombre de archivo de la nota: "Remision AR-14" (abreviación de la sucursal y número de nota). */
+export const archivoDe = (v: Pick<VentaDoc, "serie" | "folio">) => `Remision ${v.serie}-${v.folio}`;
 export const tituloDe = (v: VentaDoc) => `${v.empresa.remision_titulo || "Remisión"} ${folioDe(v)}`;
 export const emisorDe = (v: VentaDoc) => v.empresa.nombre_emisor || v.empresa.razon_social || v.sucursal.nombre;
 export const fechaMx = (iso: string) =>
@@ -124,7 +126,8 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
   // Almacén de cada renglón (0028); si falta la migración, todos salen del almacén de la venta
   const alm = await sb.from("venta_partidas").select("renglon, almacenes(nombre)").eq("venta_id", id);
   const almacenDe = (r: number) => alm.error ? null
-    : ((alm.data ?? []) as unknown as { renglon: number; almacenes: { nombre: string } | null }[]).find((x) => x.renglon === r)?.almacenes?.nombre ?? null;
+    : ((alm.data ?? []) as unknown as { renglon: number; almacenes: { nombre: string } | null }[]).find((x) => x.renglon === r)?.almacenes?.nombre
+      ?? almacenes?.nombre ?? null;   // renglones anteriores a 0028: el almacén de la venta
   return {
     ...resto, orden_compra: ext?.orden_compra ?? null, capturo, sucursal: sucursales, almacen: almacenes?.nombre ?? "", cliente: clientes,
     empresa,
@@ -248,7 +251,7 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
       [p.m2_por_pieza ? nombreConCaja(p.nombre, p.m2_por_caja, p.formato)   // pisos: m² que trae la caja, como en las notas
         : p.unidad !== p.unidad_base ? `${nombreConCaja(p.nombre, null, p.formato)} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : nombreConCaja(p.nombre, null, p.formato),
         ...(p.comentario ? [p.comentario] : []),
-        ...(p.almacen && p.almacen !== v.almacen ? [`Sale de: ${p.almacen}`] : []),
+        ...(p.almacen ? [`Sale de: ${p.almacen}`] : []),   // bodega de donde sale cada renglón
         " "].join("\n"), // el último renglón se reserva para la línea de impuesto (letra chica)
       nP(precio), n4(importe),
     ]),
@@ -390,7 +393,7 @@ function pdfTicket(JsPDF: typeof import("jspdf").jsPDF, v: VentaDoc, ancho: 58 |
     for (const f of imp.filas) {
       fila(`${f.p.sku} ${nombreConCaja(f.p.nombre, f.p.m2_por_caja, f.p.formato)}`, "");
       if (f.p.comentario) fila(`  ${f.p.comentario}`, "");
-      if (f.p.almacen && f.p.almacen !== v.almacen) fila(`  Sale de: ${f.p.almacen}`, "");
+      if (f.p.almacen) fila(`  Sale de: ${f.p.almacen}`, "");
       fila(`  ${fmtCantidad(f.p.cantidad, 4)} ${f.p.unidad} x ${n2(f.precio)}`, n2(f.importe));
     }
     raya();
