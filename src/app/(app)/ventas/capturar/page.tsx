@@ -311,26 +311,25 @@ export default function CapturarVenta() {
 
       <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] p-4 sm:p-6">
         {/* Encabezado */}
-        <div className="flex flex-wrap gap-4 justify-between">
-          <div className="flex gap-4 items-start text-sm">
+        <div className="flex flex-wrap md:flex-nowrap gap-4 justify-between">
+          <div className="flex gap-4 items-start text-sm flex-1 min-w-0">
             {empresa.logos.length > 0 && (
               <div className="flex flex-wrap gap-1 max-w-40">
                 {empresa.logos.slice(0, 4).map((src, i) => <img key={i} src={src} alt="" className="max-h-10 max-w-[76px] object-contain" />)}
               </div>
             )}
             <div>
-              <div className="font-semibold uppercase">{empresa.nombre_emisor || empresa.razon_social || sucursal?.nombre || "—"}</div>
+              <div className="uppercase">{empresa.nombre_emisor || empresa.razon_social || sucursal?.nombre || "—"}</div>
               {(empresa.rfc || sucursal?.telefono || empresa.telefono) && (
                 <div>{empresa.rfc && <>RFC: {empresa.rfc} </>}{(sucursal?.telefono || empresa.telefono) && <>Teléfono: {sucursal?.telefono || empresa.telefono}</>}</div>
               )}
-              {sucursal?.direccion && <div>{sucursal.direccion}{sucursal.cp_expedicion ? ` C.P. ${sucursal.cp_expedicion}` : ""}</div>}
+              {sucursal?.direccion && <div className="max-w-xl">{sucursal.direccion}{sucursal.cp_expedicion && !/C\.?\s*P\.?\s*\d/i.test(sucursal.direccion) ? ` C.P. ${sucursal.cp_expedicion}` : ""}</div>}
               <div className="text-[var(--tenue)]">Remisión · Serie {sucursal ? `${sucursal.codigo}V` : "—"}</div>
             </div>
           </div>
-          <div className="relative w-full sm:w-80">
-            <label className="text-sm">Cliente</label>
+          <div className="relative w-full md:w-80 shrink-0">
             <div className="flex gap-2 items-center">
-              <input className="campo" placeholder={c.cliente ? c.cliente.nombre : "Buscar cliente"} value={textoCliente}
+              <input className="campo text-center" style={{ borderColor: "var(--peligro)", borderStyle: "dashed" }} placeholder="Buscar cliente" value={textoCliente}
                 onChange={(e) => setTextoCliente(e.target.value)} />
               {c.cliente && !c.cliente.es_publico_general && (
                 <button className="text-xs underline whitespace-nowrap" onClick={() => setC((v) => ({ ...v, cliente: publico, tipo: "contado" }))}>Público en general</button>
@@ -364,7 +363,7 @@ export default function CapturarVenta() {
           </div>
         </div>
 
-        <div className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-4 text-sm">
+        <div className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-5 text-sm">
           <label>Sucursal:
             <select className="campo" value={c.sucursalId} onChange={(e) => {
               const a = almacenes.find((x) => x.sucursal_id === e.target.value)?.id ?? "";
