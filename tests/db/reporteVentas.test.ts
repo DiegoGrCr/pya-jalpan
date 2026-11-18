@@ -41,3 +41,12 @@ describe("reporte_ventas: cierre", () => {
     expect(await consulta(s.cajeroA, "reporte_ventas", { orden_compra: "OC-77", cierre: "cerrada" })).toHaveLength(1);
   });
 });
+
+describe("reporte_ventas: forma de pago", () => {
+  it("filtra por forma de pago y devuelve las formas de cada venta", async () => {
+    const ef = await consulta(s.cajeroA, "reporte_ventas", { orden_compra: "OC-77", forma_pago: "efectivo" });
+    expect(ef).toHaveLength(1);
+    expect(ef[0].formas).toEqual([{ forma: "efectivo", importe: 720 }]);
+    expect(await consulta(s.cajeroA, "reporte_ventas", { orden_compra: "OC-77", forma_pago: "transferencia" })).toHaveLength(0);
+  });
+});

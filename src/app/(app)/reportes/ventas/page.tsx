@@ -15,7 +15,7 @@ interface Venta {
   id: string; serie: string; folio: number; fecha: string; cliente: string | null; cliente_id: string | null; sucursal: string | null; almacen: string | null;
   vendedor_id: string | null; tipo: "contado" | "credito"; con_abono: boolean; estado: string; estatus: "pagada" | "activa" | "cancelada";
   subtotal: string; descuento: string; iva: string; ieps: string; total: string; pagado: string; saldo: string; costo: string;
-  orden_compra: string | null; comentarios: string | null; cerrada?: boolean;
+  orden_compra: string | null; comentarios: string | null; cerrada?: boolean; formas?: { forma: string; importe: number }[];
 }
 interface Partida {
   venta_id: string; fecha: string; estado: string; producto_id: string; sku: string; producto: string; formato: string | null;
@@ -23,10 +23,14 @@ interface Partida {
   cantidad_base: string; total: string; descuento: string; costo: string;
 }
 interface Opcion { id: string; nombre: string }
-type Agrupar = "" | "cliente" | "vendedor" | "sucursal" | "almacen" | "mes" | "dia" | "estatus" | "tipo" | "producto" | "categoria" | "marca";
+type Agrupar = "" | "cliente" | "vendedor" | "sucursal" | "almacen" | "mes" | "dia" | "estatus" | "tipo" | "forma" | "producto" | "categoria" | "marca";
+const FORMAS: Record<string, string> = { efectivo: "Efectivo", tarjeta_debito: "Tarjeta de débito", tarjeta_credito: "Tarjeta de crédito",
+  transferencia: "Transferencia", saldo_favor: "Saldo a favor", anticipo: "Anticipo de apartado" };
+const FORMA_CORTA: Record<string, string> = { efectivo: "Efectivo", tarjeta_debito: "TDD", tarjeta_credito: "TDC", transferencia: "Transf.", saldo_favor: "S. a favor", anticipo: "Anticipo" };
+const formasTxt = (v: { formas?: { forma: string }[] }) => [...new Set((v.formas ?? []).map((x) => FORMA_CORTA[x.forma] ?? x.forma))].join(" + ");
 
 const AGRUPAR: [Agrupar, string][] = [["", "Sin agrupar"], ["cliente", "Cliente"], ["vendedor", "Vendedor (capturó)"], ["sucursal", "Sucursal"],
-  ["almacen", "Almacén"], ["mes", "Mes"], ["dia", "Día"], ["estatus", "Estatus"], ["tipo", "Tipo de venta"], ["producto", "Producto"],
+  ["almacen", "Almacén"], ["mes", "Mes"], ["dia", "Día"], ["estatus", "Estatus"], ["tipo", "Tipo de venta"], ["forma", "Forma de pago"], ["producto", "Producto"],
   ["categoria", "Categoría"], ["marca", "Marca"]];
 const POR_PARTIDA: Agrupar[] = ["producto", "categoria", "marca"];
 const ESTATUS = { pagada: ["Pagada", "bg-emerald-100 text-emerald-900"], activa: ["Con saldo", "bg-amber-100 text-amber-900"], cancelada: ["Cancelada", "text-white"] } as const;
@@ -41,7 +45,7 @@ const $ = (x: number) => `$${fmtImporte(x)}`;
 const tipoDe = (v: Venta) => (v.tipo === "credito" ? "Crédito" : v.con_abono ? "Contado con abono" : "Contado");
 
 const FILTROS_VACIOS = {
-  desde: inicioMes(), hasta: hoy(), sucursal_id: "", almacen_id: "", vendedor_id: "", cliente: "", estatus: "", cierre: "", tipo: "",
+  desde: inicioMes(), hasta: hoy(), sucursal_id: "", almacen_id: "", vendedor_id: "", cliente: "", estatus: "", cierre: "", tipo: "", forma_pago: "",
   producto: "", categoria_id: "", marca_id: "", orden_compra: "", serie: "", comentario: "",
 };
 
@@ -139,6 +143,13 @@ export default function ReporteVentas() {
         g.subtotal += n(p.total) + n(p.descuento); g.costo += n(p.costo);
         if (p.m2_por_caja && p.piezas_por_caja) g.m2 += n(p.cantidad_base) * n(p.m2_por_caja) / p.piezas_por_caja;
       }
+    } else if (agrupar === "forma") {
+      for (const v of validas) for (const pg of v.formas ?? []) {
+        if (f.forma_pago && pg.forma !== f.forma_pago) continue;
+        const g = nuevo(pg.forma, FORMAS[pg.forma] ?? pg.forma);
+        g.ventas.add(v.id); g.pagado += n(pg.importe); g.total += n(pg.importe);
+        if (!g.detalle.includes(v)) g.detalle.push(v);
+      }
     } else {
       for (const v of validas) {
         const fecha = new Date(v.fecha);
@@ -164,7 +175,10 @@ export default function ReporteVentas() {
     const ExcelJS = (await import("exceljs")).default;
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Ventas");
-    if (agrupar) {
+    if (agrupar === "forma") {
+      ws.columns = [{ header: "Forma de pago", key: "nombre", width: 24 }, { header: "Ventas", key: "ventas", width: 10 }, { header: "Cobrado", key: "pagado", width: 16 }];
+      for (const g of grupos) ws.addRow({ nombre: g.nombre, ventas: g.ventas.size, pagado: g.pagado });
+    } else if (agrupar) {
       const porPartida = POR_PARTIDA.includes(agrupar);
       ws.columns = [{ header: AGRUPAR.find((x) => x[0] === agrupar)![1], key: "nombre", width: 45 }, { header: "Ventas", key: "ventas", width: 10 },
         ...(porPartida ? [{ header: "Cantidad (unidad base)", key: "cantidad", width: 18 }, { header: "M²", key: "m2", width: 12 }] : []),
@@ -178,12 +192,12 @@ export default function ReporteVentas() {
         { header: "Tipo", key: "tipo", width: 16 }, { header: "Costo", key: "costo", width: 12 }, { header: "Utilidad", key: "utilidad", width: 12 },
         { header: "Subtotal", key: "subtotal", width: 12 }, { header: "Descuento", key: "descuento", width: 12 }, { header: "IVA", key: "iva", width: 10 },
         { header: "Total", key: "total", width: 12 }, { header: "Pagos", key: "pagado", width: 12 }, { header: "Saldo", key: "saldo", width: 12 },
-        { header: "Estatus", key: "estatus", width: 12 }, { header: "Orden de compra", key: "orden_compra", width: 16 }, { header: "Comentarios", key: "comentarios", width: 30 }];
+        { header: "Forma de pago", key: "pago", width: 18 }, { header: "Estatus", key: "estatus", width: 12 }, { header: "Orden de compra", key: "orden_compra", width: 16 }, { header: "Comentarios", key: "comentarios", width: 30 }];
       for (const v of ordenadas) ws.addRow({
         folio: `${v.serie} ${v.folio}`, fecha: new Date(v.fecha).toLocaleString("es-MX", tz), cliente: v.cliente, sucursal: v.sucursal, almacen: v.almacen,
         capturo: v.vendedor_id ? nombres[v.vendedor_id] ?? "" : "", tipo: tipoDe(v), costo: n(v.costo), utilidad: n(v.subtotal) - n(v.descuento) - n(v.costo),
         subtotal: n(v.subtotal), descuento: n(v.descuento), iva: n(v.iva), total: n(v.total), pagado: n(v.pagado), saldo: n(v.saldo),
-        estatus: [ESTATUS[v.estatus][0], cierreDe(v)].filter(Boolean).join(" · "), orden_compra: v.orden_compra ?? "", comentarios: v.comentarios ?? "",
+        pago: formasTxt(v), estatus: [ESTATUS[v.estatus][0], cierreDe(v)].filter(Boolean).join(" · "), orden_compra: v.orden_compra ?? "", comentarios: v.comentarios ?? "",
       });
     }
     ws.getRow(1).font = { bold: true };
@@ -241,6 +255,11 @@ export default function ReporteVentas() {
                 <option value="">Todas</option><option value="abierta">Abiertas</option><option value="cerrada">Cerradas</option>
               </select>
             </label>
+            <label>Forma de pago
+              <select className="campo" value={f.forma_pago} onChange={(e) => set("forma_pago", e.target.value)}>
+                <option value="">Todas</option>{Object.entries(FORMAS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+              </select>
+            </label>
             <label>Tipo de venta
               <select className="campo" value={f.tipo} onChange={(e) => set("tipo", e.target.value)}>
                 <option value="">Todos</option><option value="contado">Contado</option><option value="abono">Contado con abono</option><option value="credito">Crédito</option>
@@ -279,10 +298,12 @@ export default function ReporteVentas() {
               <thead style={{ color: "var(--acento)" }}>
                 <tr className="text-left border-b border-[var(--borde)]">
                   <th className="font-normal p-2">{AGRUPAR.find((x) => x[0] === agrupar)![1]}</th><th className="font-normal pr-3 text-right">Ventas</th>
+                  {agrupar === "forma" ? <th className="font-normal pr-2 text-right">Cobrado</th> : <>
                   {POR_PARTIDA.includes(agrupar) && <><th className="font-normal pr-3 text-right">Cantidad</th><th className="font-normal pr-3 text-right">M²</th></>}
                   <th className="font-normal pr-3 text-right">Subtotal</th><th className="font-normal pr-3 text-right">Descuento</th><th className="font-normal pr-3 text-right">Total</th>
                   {!POR_PARTIDA.includes(agrupar) && <><th className="font-normal pr-3 text-right">Pagos</th><th className="font-normal pr-3 text-right">Saldo</th></>}
                   <th className="font-normal pr-3 text-right">Costo</th><th className="font-normal pr-2 text-right">Utilidad</th>
+                  </>}
                 </tr>
               </thead>
               <tbody>
@@ -292,15 +313,19 @@ export default function ReporteVentas() {
                       onClick={() => g.detalle.length && setExpandido(expandido === g.clave ? null : g.clave)}>
                       <td className="p-2">{g.detalle.length ? (expandido === g.clave ? "▾ " : "▸ ") : ""}{g.nombre}</td>
                       <td className="pr-3 text-right">{g.ventas.size}</td>
+                      {agrupar === "forma" ? <td className="pr-2 text-right font-medium">{$(g.pagado)}</td> : <>
                       {POR_PARTIDA.includes(agrupar) && <><td className="pr-3 text-right">{fmtCantidad(g.cantidad, 2)}</td><td className="pr-3 text-right">{g.m2 ? fmtCantidad(g.m2, 2) : ""}</td></>}
                       <td className="pr-3 text-right">{$(g.subtotal)}</td><td className="pr-3 text-right">{$(g.descuento)}</td><td className="pr-3 text-right font-medium">{$(g.total)}</td>
                       {!POR_PARTIDA.includes(agrupar) && <><td className="pr-3 text-right">{$(g.pagado)}</td><td className="pr-3 text-right">{$(g.saldo)}</td></>}
                       <td className="pr-3 text-right">{$(g.costo)}</td><td className="pr-2 text-right">{$(g.subtotal - g.descuento - g.costo)}</td>
+                      </>}
                     </tr>
                     {expandido === g.clave && g.detalle.map((v) => (
                       <tr key={v.id} className="border-b border-[var(--borde)] text-xs bg-white">
                         <td className="pl-8 py-1"><Link className="underline" href={`/ventas/${v.id}`}>{v.serie} {v.folio}</Link> · {fechaCorta(v.fecha)} · {v.cliente}</td>
-                        <td /><td /><td /><td className="pr-3 text-right">{$(n(v.total))}</td><td className="pr-3 text-right">{$(n(v.pagado))}</td><td className="pr-3 text-right">{$(n(v.saldo))}</td><td /><td />
+                        {agrupar === "forma"
+                          ? <><td /><td className="pr-2 text-right">{$((v.formas ?? []).filter((x) => x.forma === g.clave).reduce((a, x) => a + n(x.importe), 0))}</td></>
+                          : <><td /><td /><td /><td className="pr-3 text-right">{$(n(v.total))}</td><td className="pr-3 text-right">{$(n(v.pagado))}</td><td className="pr-3 text-right">{$(n(v.saldo))}</td><td /><td /></>}
                       </tr>
                     ))}
                   </Fragment>
@@ -316,6 +341,7 @@ export default function ReporteVentas() {
                   <Encabezado k="subtotal" t="Subtotal" der /><Encabezado k="descuento" t="Descuento" der /><Encabezado k="iva" t="IVA" der />
                   {conIeps && <Encabezado k="ieps" t="IEPS" der />}
                   <Encabezado k="total" t="Total" der /><Encabezado k="pagado" t="Pagos" der /><Encabezado k="saldo" t="Saldo" der />
+                  <th className="font-normal pr-3">Pago</th>
                   <th className="font-normal pr-3">Estatus</th><th className="font-normal pr-2"></th>
                 </tr>
               </thead>
@@ -331,6 +357,7 @@ export default function ReporteVentas() {
                       <td className="pr-3 text-right">{$(n(v.subtotal))}</td><td className="pr-3 text-right">{$(n(v.descuento))}</td>
                       <td className="pr-3 text-right">{$(n(v.iva))}</td>{conIeps && <td className="pr-3 text-right">{$(n(v.ieps))}</td>}
                       <td className="pr-3 text-right">{$(n(v.total))}</td><td className="pr-3 text-right">{$(n(v.pagado))}</td><td className="pr-3 text-right">{$(n(v.saldo))}</td>
+                      <td className="pr-3 whitespace-nowrap text-xs">{formasTxt(v)}</td>
                       <td className="pr-3"><EstatusVenta estado={v.estado} saldo={v.saldo} cerrada={v.cerrada} /></td>
                       <td className="pr-2">
                         <Link href={`/ventas/${v.id}`} title="Ver detalle" aria-label={`Ver ${v.serie} ${v.folio}`}
@@ -346,7 +373,7 @@ export default function ReporteVentas() {
                   <td className="pr-3 text-right">{$(tot.costo)}</td><td className="pr-3 text-right">{$(tot.subtotal - tot.descuento - tot.costo)}</td>
                   <td className="pr-3 text-right">{$(tot.subtotal)}</td><td className="pr-3 text-right">{$(tot.descuento)}</td><td className="pr-3 text-right">{$(tot.iva)}</td>
                   {conIeps && <td className="pr-3 text-right">{$(tot.ieps)}</td>}
-                  <td className="pr-3 text-right">{$(tot.total)}</td><td className="pr-3 text-right">{$(tot.pagado)}</td><td className="pr-3 text-right">{$(tot.saldo)}</td><td /><td />
+                  <td className="pr-3 text-right">{$(tot.total)}</td><td className="pr-3 text-right">{$(tot.pagado)}</td><td className="pr-3 text-right">{$(tot.saldo)}</td><td /><td /><td />
                 </tr>
               </tbody>
             </table>
