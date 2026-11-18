@@ -1,15 +1,16 @@
 "use client";
 /**
  * Ventas › Detalle de una venta guardada.
- * Al guardar se llega aquí, con las acciones del documento: imprimir (carta o ticket),
- * descargar PDF, enviar por correo / WhatsApp / compartir, nueva venta, facturar y cancelar.
+ * Al guardar se llega aquí. Acomodo como en las notas: barra con el folio y "Acciones"
+ * (imprimir carta o ticket, PDF, correo, WhatsApp, compartir, facturar, cancelar), pestañas
+ * Detalle / Pagos, datos en tres columnas, productos y totales.
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { fmtCantidad, fmtImporte, fmtPrecio, mxn } from "@/lib/unidades";
-import { FORMAS_PAGO, VentaDoc, cargarVenta, emisorDe, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
+import { fmtCantidad, fmtImporte, fmtPrecio, mxn, nombreConCaja } from "@/lib/unidades";
+import { FORMAS_PAGO, VentaDoc, cargarVenta, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
 
 type Formato = "carta" | "ticket80" | "ticket58";
 const CLAVE_TICKET = "formato-ticket";
@@ -22,6 +23,16 @@ export default function DetalleVenta() {
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [trabajando, setTrabajando] = useState(false);
   const [ticket, setTicket] = useState<"ticket80" | "ticket58">("ticket80");
+  const [menu, setMenu] = useState(false);
+  const [pestana, setPestana] = useState<"detalle" | "pagos">("detalle");
+
+  // Cierra el menú de acciones al hacer clic fuera
+  useEffect(() => {
+    if (!menu) return;
+    const h = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest("[aria-haspopup='menu'], [role='menu']")) setMenu(false); };
+    window.addEventListener("click", h);
+    return () => window.removeEventListener("click", h);
+  }, [menu]);
 
   const recargar = useCallback(async () => {
     try { setV(await cargarVenta(id)); } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setCargando(false); }
@@ -117,6 +128,21 @@ export default function DetalleVenta() {
 
   const cancelada = v.estado === "cancelada";
   const btn = "px-3 py-2 rounded border border-[var(--borde)] bg-[var(--panel)] hover:bg-[var(--resalte)] text-sm disabled:opacity-50";
+  const formasPago = [...new Set(v.pagos.map((p) => FORMAS_PAGO[p.forma] ?? p.forma))].join(", ");
+  const acciones: { texto: string; fn?: () => void; deshabilitado?: boolean; peligro?: boolean; nota?: string }[] = [
+    { texto: "Imprimir ticket", fn: () => imprimir(ticket) },
+    { texto: "Imprimir carta", fn: () => imprimir("carta") },
+    { texto: "Descargar PDF", fn: () => descargar("carta") },
+    { texto: "Descargar PDF ticket", fn: () => descargar(ticket) },
+    { texto: "Enviar por correo", fn: correo },
+    { texto: "Enviar por WhatsApp", fn: whatsapp },
+    { texto: "Compartir", fn: compartir },
+    { texto: "Emitir factura (CFDI)", deshabilitado: true, nota: "Disponible cuando se configure la facturación" },
+    ...(!cancelada ? [{ texto: "Cancelar venta", fn: cancelar, deshabilitado: !!v.factura_uuid, peligro: true }] : []),
+  ];
+  const Dato = ({ k, children }: { k: string; children: React.ReactNode }) => (
+    <div className="py-0.5"><span className="font-medium">{k}:</span> <span className="text-[var(--tenue)]">{children}</span></div>
+  );
 
   return (
     <div className="p-3 sm:p-5">
@@ -124,99 +150,143 @@ export default function DetalleVenta() {
         <div role="alert" className={`mb-3 rounded px-4 py-2 ${msg.tipo === "ok" ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"}`}>{msg.texto}</div>
       )}
 
-      {/* Barra de acciones */}
+      {/* Accesos rápidos */}
       <div className="flex flex-wrap gap-2 mb-3 items-center">
         <Link href="/ventas/capturar" className="btn-primario" title="F2">Nueva venta</Link>
-        <button className={btn} disabled={trabajando} onClick={() => imprimir(ticket)} title="Ctrl+P">🖨 Imprimir ticket</button>
+        <button className={btn} disabled={trabajando} onClick={() => imprimir(ticket)} title="Ctrl+P">Imprimir ticket</button>
         <select aria-label="Ancho del ticket" className="campo !w-auto text-sm" value={ticket} onChange={(e) => {
           const t = e.target.value as "ticket80" | "ticket58"; setTicket(t); try { localStorage.setItem(CLAVE_TICKET, t); } catch { /* ignorar */ }
         }}>
           <option value="ticket80">80 mm</option><option value="ticket58">58 mm</option>
         </select>
-        <button className={btn} disabled={trabajando} onClick={() => imprimir("carta")}>🖨 Imprimir carta</button>
-        <button className={btn} disabled={trabajando} onClick={() => descargar("carta")}>⬇ Descargar PDF</button>
-        <button className={btn} disabled={trabajando} onClick={() => descargar(ticket)}>⬇ PDF ticket</button>
-        <button className={btn} onClick={correo}>✉ Enviar por correo</button>
-        <button className={btn} onClick={whatsapp}>WhatsApp</button>
-        <button className={btn} disabled={trabajando} onClick={compartir}>Compartir</button>
         <span className="flex-1" />
-        <button className={btn} disabled title="Disponible cuando se configure la facturación (CFDI)">Facturar</button>
-        {!cancelada && (
-          <button className={`${btn} !text-[var(--peligro)]`} disabled={trabajando || !!v.factura_uuid} onClick={cancelar}>Cancelar venta</button>
-        )}
+        <Link href="/ventas/lista" className="underline text-sm">← Lista de ventas</Link>
       </div>
 
-      {/* Documento */}
-      <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] p-4 sm:p-6 text-sm">
-        <div className="flex flex-wrap justify-between gap-4">
-          <div>
-            <div className="font-semibold uppercase">{emisorDe(v)}</div>
-            <div className="text-[var(--tenue)]">{v.sucursal.codigo} - {v.sucursal.nombre} · Almacén: {v.almacen}</div>
-            <div className="mt-2"><span className="text-[var(--tenue)]">Cliente:</span> {v.cliente.razon_social || v.cliente.nombre}{v.cliente.rfc ? ` · ${v.cliente.rfc}` : ""}</div>
-          </div>
-          <div className="text-right">
-            <div className="text-lg font-semibold">{tituloDe(v)}</div>
-            <div>{fechaMx(v.fecha)} · {v.tipo === "credito" ? `Crédito${v.vencimiento ? `, vence ${v.vencimiento}` : ""}` : "Contado"}</div>
-            <div className="mt-1 flex gap-2 justify-end">
-              {cancelada
-                ? <span className="px-2 rounded text-white" style={{ background: "var(--peligro)" }}>Cancelada</span>
-                : <span className="px-2 rounded bg-emerald-100 text-emerald-900">Confirmada</span>}
-              {!cancelada && pendienteEntrega(v) && <span className="px-2 rounded bg-amber-100 text-amber-900">Entrega pendiente</span>}
-              {v.factura_uuid && <span className="px-2 rounded bg-sky-100 text-sky-900">Facturada</span>}
-            </div>
-            {cancelada && v.motivo_cancelacion && <div className="text-xs mt-1">Motivo: {v.motivo_cancelacion}</div>}
+      <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] text-sm overflow-hidden">
+        {/* Barra de título con acciones */}
+        <div className="flex items-center justify-between gap-3 px-4 py-2 text-white" style={{ background: cancelada ? "var(--peligro)" : "var(--acento)" }}>
+          <div className="text-lg font-semibold">{tituloDe(v).replace(/ (\S+)$/, " - $1")}</div>
+          <div className="relative">
+            <button className="px-3 py-1 rounded bg-white/15 hover:bg-white/25 text-sm" aria-haspopup="menu" aria-expanded={menu}
+              onClick={() => setMenu(!menu)}>Acciones ▾</button>
+            {menu && (
+              <ul role="menu" className="absolute right-0 mt-1 w-60 z-20 bg-[var(--panel)] text-[var(--texto)] border border-[var(--borde)] rounded shadow-lg py-1">
+                {acciones.map((a) => (
+                  <li key={a.texto}>
+                    <button role="menuitem" disabled={a.deshabilitado || trabajando} title={a.nota}
+                      className={`w-full text-left px-3 py-1.5 hover:bg-[var(--resalte)] disabled:opacity-50 ${a.peligro ? "text-[var(--peligro)]" : ""}`}
+                      onClick={() => { setMenu(false); a.fn?.(); }}>{a.texto}</button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
 
-        <div className="overflow-x-auto mt-4">
-          <table className="w-full min-w-[640px]">
-            <thead style={{ color: "var(--acento)" }}>
-              <tr className="text-left">
-                <th className="py-1 font-normal">Código</th><th className="font-normal">Unidad</th><th className="font-normal">Concepto</th>
-                <th className="font-normal text-right">Cant.</th><th className="font-normal text-right">Entregado</th>
-                <th className="font-normal text-right">Precio</th><th className="font-normal text-right">Importe</th>
-              </tr>
-            </thead>
-            <tbody>
-              {v.partidas.map((p, i) => (
-                <tr key={p.renglon} className="border-t border-[var(--borde)] align-top" style={{ background: i % 2 ? "transparent" : "#f7f9fb" }}>
-                  <td className="py-2">{p.sku}</td>
-                  <td>{p.unidad}</td>
-                  <td>{p.nombre}
-                    {p.unidad !== p.unidad_base && <div className="text-xs text-[var(--tenue)]">= {fmtCantidad(p.cantidad_base)} {p.unidad_base}</div>}
-                    {p.vendida_sin_existencia && <div className="text-xs text-[var(--peligro)]">Vendida sin existencia suficiente</div>}
-                  </td>
-                  <td className="text-right">{fmtCantidad(p.cantidad)}</td>
-                  <td className="text-right">{fmtCantidad(p.cantidad_entregada)}</td>
-                  <td className="text-right">{fmtPrecio(p.precio_unitario)}</td>
-                  <td className="text-right">{fmtImporte(p.total)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* Pestañas */}
+        <div className="flex gap-1 border-b border-[var(--borde)] px-4 pt-2">
+          {(["detalle", "pagos"] as const).map((t) => (
+            <button key={t} onClick={() => setPestana(t)}
+              className={`px-3 py-1.5 rounded-t border border-b-0 ${pestana === t ? "border-[var(--borde)] bg-[var(--panel)] font-semibold" : "border-transparent text-[var(--acento)]"}`}>
+              {t === "detalle" ? "Detalle" : <>Pagos <span className="ml-1 px-1.5 rounded-full text-xs text-white" style={{ background: "var(--acento)" }}>{v.pagos.length}</span></>}
+            </button>
+          ))}
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_280px] mt-4">
-          <div>
-            <div className="barra-seccion">Pagos</div>
-            <ul className="mt-2">
-              {v.pagos.length ? v.pagos.map((p, i) => (
-                <li key={i}>{FORMAS_PAGO[p.forma] ?? p.forma}: {mxn(p.importe)}{p.referencia ? ` · ${p.referencia}` : ""}</li>
-              )) : <li className="text-[var(--tenue)]">Sin pagos (venta a crédito)</li>}
-            </ul>
-            {v.comentarios && <><div className="mt-3 text-[var(--tenue)]">Comentarios</div><p className="whitespace-pre-wrap">{v.comentarios}</p></>}
+        <div className="p-4 sm:p-6">
+          {pestana === "detalle" ? (
+            <>
+              <div className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <Dato k="Cliente">{v.cliente.razon_social || v.cliente.nombre}</Dato>
+                  <Dato k="Teléfono">{v.cliente.telefono ?? ""}</Dato>
+                  <Dato k="Capturó">{v.capturo ?? ""}</Dato>
+                  <Dato k="Forma de pago">{formasPago || (v.tipo === "credito" ? "Crédito" : "")}</Dato>
+                  <Dato k="Comentarios">{v.comentarios ?? ""}</Dato>
+                </div>
+                <div>
+                  <Dato k="Tipo">{v.tipo === "credito" ? "Crédito" : "Contado"}</Dato>
+                  <Dato k="Fecha">{fechaMx(v.fecha)}</Dato>
+                  <Dato k="Sucursal">{v.sucursal.codigo} - {v.sucursal.nombre}</Dato>
+                  <Dato k="Almacén">{v.almacen}</Dato>
+                </div>
+                <div>
+                  <div className="py-0.5"><span className="font-medium">Estatus:</span>{" "}
+                    {cancelada
+                      ? <span className="px-1.5 rounded text-xs text-white" style={{ background: "var(--peligro)" }}>Cancelada</span>
+                      : <span className="px-1.5 rounded text-xs bg-emerald-100 text-emerald-900">Activa</span>}
+                    {!cancelada && pendienteEntrega(v) && <span className="ml-1 px-1.5 rounded text-xs bg-amber-100 text-amber-900">Entrega pendiente</span>}
+                    {v.factura_uuid && <span className="ml-1 px-1.5 rounded text-xs bg-sky-100 text-sky-900">Facturada</span>}
+                  </div>
+                  <Dato k="RFC">{v.cliente.rfc ?? ""}</Dato>
+                  <Dato k="Vencimiento">{v.vencimiento ?? ""}</Dato>
+                  <Dato k="Orden de compra">{v.orden_compra ?? ""}</Dato>
+                  {cancelada && v.motivo_cancelacion && <Dato k="Motivo de cancelación">{v.motivo_cancelacion}</Dato>}
+                </div>
+              </div>
+
+              <div className="mt-5 text-[var(--tenue)]">Productos</div>
+              <div className="overflow-x-auto mt-1">
+                <table className="w-full min-w-[760px]">
+                  <thead style={{ color: "var(--acento)" }}>
+                    <tr className="text-left border-b border-[var(--borde)]">
+                      <th className="py-1 pl-2 pr-3 font-normal">No</th><th className="pr-3 font-normal">Código</th><th className="pr-3 font-normal">Unidad</th>
+                      <th className="pr-3 font-normal">Producto</th><th className="pr-3 font-normal text-right">Cant.</th><th className="pr-3 font-normal text-right">Entregado</th>
+                      <th className="pr-3 font-normal text-right">Precio</th><th className="pr-3 font-normal text-right">Descuento</th><th className="pr-2 font-normal text-right">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {v.partidas.map((p, i) => (
+                      <tr key={p.renglon} className="border-b border-[var(--borde)] align-top" style={{ background: i % 2 ? "transparent" : "#f7f9fb" }}>
+                        <td className="py-2 pl-2 pr-3">{p.renglon}</td>
+                        <td className="py-2 pr-3 whitespace-nowrap">{p.sku}</td>
+                        <td className="py-2 pr-3">{p.unidad}</td>
+                        <td className="py-2 pr-3">{nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}
+                          {p.unidad !== p.unidad_base && <div className="text-xs text-[var(--tenue)]">= {fmtCantidad(p.cantidad_base)} {p.unidad_base}</div>}
+                          {p.comentario && <div className="text-xs italic">{p.comentario}</div>}
+                          {p.vendida_sin_existencia && <div className="text-xs text-[var(--peligro)]">Vendida sin existencia suficiente</div>}
+                        </td>
+                        <td className="py-2 pr-3 text-right">{fmtCantidad(p.cantidad)}</td>
+                        <td className={`py-2 pr-3 text-right ${Number(p.cantidad_entregada) < Number(p.cantidad) && !cancelada ? "text-amber-700 font-semibold" : ""}`}>{fmtCantidad(p.cantidad_entregada)}</td>
+                        <td className="py-2 pr-3 text-right">{fmtPrecio(p.precio_unitario)}</td>
+                        <td className="py-2 pr-3 text-right">{fmtImporte(p.descuento)}</td>
+                        <td className="py-2 pr-2 text-right">{fmtImporte(p.total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <table className="w-full max-w-2xl">
+              <thead style={{ color: "var(--acento)" }}>
+                <tr className="text-left border-b border-[var(--borde)]"><th className="py-1 font-normal">Forma de pago</th><th className="font-normal">Referencia</th><th className="font-normal text-right">Importe</th></tr>
+              </thead>
+              <tbody>
+                {v.pagos.length ? v.pagos.map((p, i) => (
+                  <tr key={i} className="border-b border-[var(--borde)]">
+                    <td className="py-1.5">{FORMAS_PAGO[p.forma] ?? p.forma}</td><td>{p.referencia ?? ""}</td><td className="text-right">{fmtImporte(p.importe)}</td>
+                  </tr>
+                )) : <tr><td colSpan={3} className="py-3 text-[var(--tenue)]">Sin pagos registrados{v.tipo === "credito" ? " (venta a crédito)" : ""}.</td></tr>}
+              </tbody>
+            </table>
+          )}
+
+          {/* Totales */}
+          <div className="flex justify-end mt-4">
+            <dl className="grid grid-cols-[auto_auto] gap-x-10 gap-y-1 min-w-64">
+              <dt>Subtotal:</dt><dd className="text-right">{fmtImporte(Number(v.subtotal) + Number(v.descuento))} MXN</dd>
+              {Number(v.descuento) > 0 && <><dt>Descuento:</dt><dd className="text-right">−{fmtImporte(v.descuento)} MXN</dd></>}
+              {Number(v.ieps) > 0 && <><dt>I.E.P.S.:</dt><dd className="text-right">{fmtImporte(v.ieps)} MXN</dd></>}
+              <dt>I.V.A.:</dt><dd className="text-right">{fmtImporte(v.iva)} MXN</dd>
+              <dt className="font-semibold">Total:</dt><dd className="text-right font-semibold">{fmtImporte(v.total)} MXN</dd>
+              <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(v.pagado)} MXN</dd>
+              {v.tipo === "credito"
+                ? <><dt>Saldo:</dt><dd className="text-right font-semibold">{fmtImporte(v.saldo)} MXN</dd></>
+                : <><dt>Cambio:</dt><dd className="text-right">{fmtImporte(v.cambio)} MXN</dd></>}
+            </dl>
           </div>
-          <dl className="grid grid-cols-[1fr_auto] gap-y-1">
-            <dt>Subtotal:</dt><dd className="text-right">{fmtImporte(v.subtotal)}</dd>
-            <dt>Descuento:</dt><dd className="text-right">{fmtImporte(v.descuento)}</dd>
-            {Number(v.ieps) > 0 && <><dt>I.E.P.S.:</dt><dd className="text-right">{fmtImporte(v.ieps)}</dd></>}
-            <dt>I.V.A.:</dt><dd className="text-right">{fmtImporte(v.iva)}</dd>
-            <dt className="font-semibold text-base">Total (MXN):</dt><dd className="text-right font-semibold text-base">{fmtImporte(v.total)}</dd>
-            <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(v.pagado)}</dd>
-            {v.tipo === "credito"
-              ? <><dt>Saldo:</dt><dd className="text-right font-semibold">{fmtImporte(v.saldo)}</dd></>
-              : <><dt>Cambio:</dt><dd className="text-right font-semibold">{fmtImporte(v.cambio)}</dd></>}
-          </dl>
         </div>
       </section>
     </div>

@@ -17,3 +17,12 @@ describe("Venta con orden de compra y comentarios", () => {
     expect(v).toEqual({ orden_compra: "OC-123", comentario: "Entregar en obra" });
   });
 });
+
+describe("nombres_usuarios", () => {
+  it("un vendedor puede ver el nombre de quien capturó, sin más datos", async () => {
+    const { asUser } = await import("./setup");
+    const rows = await asUser(s.cajeroA, async (c) => (await c.query(`select * from public.nombres_usuarios($1::uuid[])`, [[s.admin, s.cajeroB]])).rows);
+    expect(rows.map((r: { nombre: string }) => r.nombre).sort()).toEqual(["Admin Prueba", "Cajero Norte"].sort());
+    expect(Object.keys(rows[0]).sort()).toEqual(["nombre", "user_id"]);
+  });
+});

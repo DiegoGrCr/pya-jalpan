@@ -34,6 +34,8 @@ export interface VentaDoc {
   subtotal: string; descuento: string; ieps: string; iva: string; total: string; pagado: string; saldo: string; cambio: string;
   vencimiento: string | null; comentarios: string | null; motivo_cancelacion: string | null; factura_uuid: string | null;
   orden_compra?: string | null;
+  /** Nombre de quien capturó la venta (0022) */
+  capturo?: string | null;
   sucursal: { codigo: string; nombre: string; cp_expedicion: string | null; direccion: string | null; telefono: string | null; lugar_expedicion: string | null };
   almacen: string;
   cliente: { nombre: string; razon_social: string | null; rfc: string | null; correo_facturas: string | null; telefono: string | null; es_publico_general: boolean };
@@ -89,6 +91,15 @@ export async function cargarEmpresa(): Promise<EmpresaDoc> {
   return EMPRESA_VACIA;
 }
 
+/** Nombres de usuarios por id (función nombres_usuarios, 0022). Si falta la migración, devuelve vacío. */
+export async function nombresUsuarios(ids: string[]): Promise<Record<string, string>> {
+  const unicos = [...new Set(ids.filter(Boolean))];
+  if (!unicos.length) return {};
+  const { data, error } = await supabase().rpc("nombres_usuarios", { p_ids: unicos });
+  if (error) return {};
+  return Object.fromEntries(((data ?? []) as { user_id: string; nombre: string }[]).map((x) => [x.user_id, x.nombre]));
+}
+
 export async function cargarVenta(id: string): Promise<VentaDoc | null> {
   const sb = supabase();
   const [primera, empresa] = await Promise.all([
@@ -104,11 +115,12 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
   const f = v.data as unknown as FilaVenta;
   const { sucursales, almacenes, clientes, venta_partidas, venta_pagos, ...resto } = f;
   // Orden de compra y comentarios por renglón (0020); si falta la migración se omiten
-  const extra = await sb.from("ventas").select("orden_compra, venta_partidas(renglon, comentario)").eq("id", id).maybeSingle();
-  const ext = extra.error ? null : extra.data as { orden_compra: string | null; venta_partidas: { renglon: number; comentario: string | null }[] } | null;
+  const extra = await sb.from("ventas").select("orden_compra, vendedor_id, venta_partidas(renglon, comentario)").eq("id", id).maybeSingle();
+  const ext = extra.error ? null : extra.data as { orden_compra: string | null; vendedor_id: string | null; venta_partidas: { renglon: number; comentario: string | null }[] } | null;
+  const capturo = ext?.vendedor_id ? (await nombresUsuarios([ext.vendedor_id]))[ext.vendedor_id] ?? null : null;
   const comentarioDe = (r: number) => ext?.venta_partidas.find((x) => x.renglon === r)?.comentario ?? null;
   return {
-    ...resto, orden_compra: ext?.orden_compra ?? null, sucursal: sucursales, almacen: almacenes?.nombre ?? "", cliente: clientes,
+    ...resto, orden_compra: ext?.orden_compra ?? null, capturo, sucursal: sucursales, almacen: almacenes?.nombre ?? "", cliente: clientes,
     empresa,
     partidas: [...venta_partidas].sort((a, b) => a.renglon - b.renglon).map(({ productos, unidad_nombre, ...p }) => ({
       ...p, sku: productos.sku, nombre: productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
