@@ -24,7 +24,7 @@ export interface PartidaDoc {
   /** Comentario del renglón (migración 0020) */
   comentario?: string | null;
 }
-export interface PagoDoc { forma: string; importe: string; referencia: string | null }
+export interface PagoDoc { forma: string; importe: string; referencia: string | null; fecha?: string }
 export interface EmpresaDoc {
   razon_social: string | null; nombre_emisor: string | null; rfc: string | null; telefono: string | null; logos: string[];
   condiciones_venta: string | null; remision_titulo: string; remision_firma: boolean; remision_desglosa_iva: boolean;
@@ -68,7 +68,7 @@ const consultaVenta = (sucursal: string, prod = PROD) => `id, serie, folio, fech
   clientes(nombre, razon_social, rfc, correo_facturas, telefono, es_publico_general),
   venta_partidas(renglon, unidad_nombre, factor, cantidad, cantidad_base, cantidad_entregada, precio_unitario, descuento, total,
     iva_tasa, ieps_tasa, vendida_sin_existencia, productos(${prod})),
-  venta_pagos(forma, importe, referencia)`;
+  venta_pagos(forma, importe, referencia, fecha)`;
 
 /** Columna inexistente (falta aplicar una migración): Postgres 42703 / PostgREST PGRST204. */
 const faltaColumna = (err: { code?: string; message?: string } | null) =>

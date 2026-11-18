@@ -26,6 +26,8 @@ export default function DetalleVenta() {
   const [ticket, setTicket] = useState<"ticket80" | "ticket58">("ticket80");
   const [menu, setMenu] = useState(false);
   const [pestana, setPestana] = useState<"detalle" | "pagos">("detalle");
+  const [cancelacion, setCancelacion] = useState<{ motivo: string; detalle: string } | null>(null);
+  const [pago, setPago] = useState<{ clave: string; forma: string; importe: string; referencia: string; comentarios: string } | null>(null);
 
   // Cierra el menú de acciones al hacer clic fuera
   useEffect(() => {
@@ -138,16 +140,35 @@ export default function DetalleVenta() {
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
   };
 
-  const cancelar = async () => {
-    if (!v) return;
-    const motivo = window.prompt(`Cancelar la venta ${folioDe(v)}.\nEl inventario regresa al almacén y los pagos quedan anulados.\n\nMotivo de la cancelación:`);
-    if (motivo === null) return;
-    if (!motivo.trim()) { setMsg({ tipo: "error", texto: "El motivo es obligatorio." }); return; }
+  const MOTIVOS = ["Error en la captura", "El cliente ya no la quiere", "Devolución de material", "Se capturó dos veces", "Otro"];
+  const confirmarCancelacion = async () => {
+    if (!v || !cancelacion) return;
+    const motivo = [cancelacion.motivo, cancelacion.detalle.trim()].filter(Boolean).join(": ");
+    if (!cancelacion.motivo || (cancelacion.motivo === "Otro" && !cancelacion.detalle.trim())) { setMsg({ tipo: "error", texto: "Indica el motivo de la cancelación." }); return; }
     setTrabajando(true);
     try {
-      const { error } = await supabase().rpc("cancelar_venta", { p_venta: v.id, p_motivo: motivo.trim() });
+      const { error } = await supabase().rpc("cancelar_venta", { p_venta: v.id, p_motivo: motivo });
       if (error) throw error;
+      setCancelacion(null);
       setMsg({ tipo: "ok", texto: `Venta ${folioDe(v)} cancelada.` });
+      await recargar();
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
+  };
+
+  const guardarPago = async () => {
+    if (!v || !pago) return;
+    setTrabajando(true);
+    try {
+      const { error } = await supabase().rpc("registrar_pago_venta", { p: {
+        idempotency_key: pago.clave, venta_id: v.id, forma: pago.forma, importe: pago.importe,
+        referencia: pago.referencia || null, comentarios: pago.comentarios || null,
+      } });
+      if (error) {
+        if (/registrar_pago_venta/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000023_registrar_pago.sql en Supabase.");
+        throw error;
+      }
+      setPago(null);
+      setMsg({ tipo: "ok", texto: `Pago de ${mxn(pago.importe)} registrado.` });
       await recargar();
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
   };
@@ -176,6 +197,8 @@ export default function DetalleVenta() {
   const btn = "px-3 py-2 rounded border border-[var(--borde)] bg-[var(--panel)] hover:bg-[var(--resalte)] text-sm disabled:opacity-50";
   const formasPago = [...new Set(v.pagos.map((p) => FORMAS_PAGO[p.forma] ?? p.forma))].join(", ");
   const acciones: { texto: string; fn?: () => void; deshabilitado?: boolean; peligro?: boolean; nota?: string }[] = [
+    { texto: "Registrar pago", fn: () => setPago({ clave: crypto.randomUUID(), forma: "efectivo", importe: Number(v.saldo).toFixed(2), referencia: "", comentarios: "" }),
+      deshabilitado: cancelada || !(Number(v.saldo) > 0), nota: Number(v.saldo) > 0 ? undefined : "La venta no tiene saldo pendiente" },
     { texto: "Imprimir ticket", fn: () => imprimir(ticket) },
     { texto: "Imprimir carta", fn: () => imprimir("carta") },
     { texto: "Descargar PDF", fn: () => descargar("carta") },
@@ -186,7 +209,7 @@ export default function DetalleVenta() {
     { texto: "Descargar imagen (PNG)", fn: () => imagen("descargar") },
     { texto: "Compartir", fn: compartir },
     { texto: "Emitir factura (CFDI)", deshabilitado: true, nota: "Disponible cuando se configure la facturación" },
-    ...(!cancelada ? [{ texto: "Cancelar venta", fn: cancelar, deshabilitado: !!v.factura_uuid, peligro: true }] : []),
+    ...(!cancelada ? [{ texto: "Cancelar venta", fn: () => setCancelacion({ motivo: "", detalle: "" }), deshabilitado: !!v.factura_uuid, peligro: true }] : []),
   ];
   const Dato = ({ k, children }: { k: string; children: React.ReactNode }) => (
     <div className="py-0.5"><span className="font-medium">{k}:</span> <span className="text-[var(--tenue)]">{children}</span></div>
@@ -312,14 +335,14 @@ export default function DetalleVenta() {
           ) : (
             <table className="w-full max-w-2xl">
               <thead style={{ color: "var(--acento)" }}>
-                <tr className="text-left border-b border-[var(--borde)]"><th className="py-1 font-normal">Forma de pago</th><th className="font-normal">Referencia</th><th className="font-normal text-right">Importe</th></tr>
+                <tr className="text-left border-b border-[var(--borde)]"><th className="py-1 font-normal">Fecha</th><th className="font-normal">Forma de pago</th><th className="font-normal">Referencia</th><th className="font-normal text-right">Importe</th></tr>
               </thead>
               <tbody>
                 {v.pagos.length ? v.pagos.map((p, i) => (
                   <tr key={i} className="border-b border-[var(--borde)]">
-                    <td className="py-1.5">{FORMAS_PAGO[p.forma] ?? p.forma}</td><td>{p.referencia ?? ""}</td><td className="text-right">{fmtImporte(p.importe)}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">{p.fecha ? fechaMx(p.fecha) : ""}</td><td className="pr-3">{FORMAS_PAGO[p.forma] ?? p.forma}</td><td className="pr-3">{p.referencia ?? ""}</td><td className="text-right">{fmtImporte(p.importe)}</td>
                   </tr>
-                )) : <tr><td colSpan={3} className="py-3 text-[var(--tenue)]">Sin pagos registrados{v.tipo === "credito" ? " (venta a crédito)" : ""}.</td></tr>}
+                )) : <tr><td colSpan={4} className="py-3 text-[var(--tenue)]">Sin pagos registrados{v.tipo === "credito" ? " (venta a crédito)" : ""}.</td></tr>}
               </tbody>
             </table>
           )}
@@ -340,6 +363,71 @@ export default function DetalleVenta() {
           </div>
         </div>
       </section>
+      {pago && (
+        <Ventana titulo="Registrar pago" onCerrar={() => setPago(null)}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label>Forma de pago
+              <select className="campo" value={pago.forma} onChange={(e) => setPago({ ...pago, forma: e.target.value })}>
+                <option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option>
+                <option value="tarjeta_debito">Tarjeta de débito</option><option value="tarjeta_credito">Tarjeta de crédito</option>
+              </select>
+            </label>
+            <label>Referencia
+              <input className="campo" placeholder="Folio de transferencia, últimos 4 dígitos…" value={pago.referencia} onChange={(e) => setPago({ ...pago, referencia: e.target.value })} />
+            </label>
+            <label>Importe (MXN)
+              <input className="campo" inputMode="decimal" value={pago.importe} onChange={(e) => setPago({ ...pago, importe: e.target.value })} />
+              <span className="text-xs text-[var(--tenue)]">Saldo pendiente: {mxn(v.saldo)}</span>
+            </label>
+            <label>Fecha
+              <input className="campo" readOnly value={new Date().toLocaleDateString("es-MX", { timeZone: "America/Mexico_City" })} />
+            </label>
+            <label className="sm:col-span-2">Comentarios
+              <textarea className="campo h-16" value={pago.comentarios} onChange={(e) => setPago({ ...pago, comentarios: e.target.value })} />
+            </label>
+          </div>
+          <div className="flex justify-end gap-3 mt-4">
+            <button className="px-4 py-2 rounded border border-[var(--borde)]" onClick={() => setPago(null)}>Cancelar</button>
+            <button className="btn-primario" disabled={trabajando || !(Number(pago.importe) > 0)} onClick={guardarPago}>{trabajando ? "Guardando…" : "Guardar"}</button>
+          </div>
+        </Ventana>
+      )}
+
+      {cancelacion && (
+        <Ventana titulo={`Cancelar venta ${folioDe(v)}`} onCerrar={() => setCancelacion(null)}>
+          <p className="rounded px-3 py-2 bg-amber-50 text-amber-900">
+            El material regresa al inventario del almacén y la venta queda cancelada con sus pagos. Esta acción no se puede deshacer.
+          </p>
+          <label className="block mt-3">Motivo
+            <select className="campo" value={cancelacion.motivo} onChange={(e) => setCancelacion({ ...cancelacion, motivo: e.target.value })}>
+              <option value="">— Elige —</option>{MOTIVOS.map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </label>
+          <label className="block mt-3">Detalle {cancelacion.motivo === "Otro" ? "*" : "(opcional)"}
+            <textarea className="campo h-16" value={cancelacion.detalle} onChange={(e) => setCancelacion({ ...cancelacion, detalle: e.target.value })} />
+          </label>
+          <div className="flex justify-end gap-3 mt-4">
+            <button className="px-4 py-2 rounded border border-[var(--borde)]" onClick={() => setCancelacion(null)}>Cerrar</button>
+            <button className="px-4 py-2 rounded text-white disabled:opacity-50" style={{ background: "var(--peligro)" }}
+              disabled={trabajando || !cancelacion.motivo} onClick={confirmarCancelacion}>{trabajando ? "Cancelando…" : "Cancelar venta"}</button>
+          </div>
+        </Ventana>
+      )}
+    </div>
+  );
+}
+
+/** Ventana modal sencilla (fondo oscuro, se cierra con la X o el fondo). */
+function Ventana({ titulo, onCerrar, children }: { titulo: string; onCerrar: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3" onClick={onCerrar}>
+      <div role="dialog" aria-label={titulo} className="bg-[var(--panel)] rounded-md shadow-lg w-full max-w-xl p-5 text-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-3">
+          <h2 className="text-lg font-semibold">{titulo}</h2>
+          <button aria-label="Cerrar" className="text-[var(--peligro)] text-lg" onClick={onCerrar}>✕</button>
+        </div>
+        {children}
+      </div>
     </div>
   );
 }
