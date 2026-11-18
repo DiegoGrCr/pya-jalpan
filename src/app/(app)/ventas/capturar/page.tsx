@@ -395,7 +395,7 @@ export default function CapturarVenta() {
           <table className="w-full text-sm min-w-[760px]">
             <thead style={{ color: "var(--acento)" }}>
               <tr className="text-left">
-                <th className="py-1 font-normal w-24">Código</th><th className="font-normal w-28">Unidad</th><th className="font-normal">Concepto</th>
+                <th className="py-1 pl-2 pr-3 font-normal w-32">Código</th><th className="font-normal w-28 pr-3">Unidad</th><th className="font-normal pr-3">Concepto</th>
                 <th className="font-normal w-24">Cant.</th><th className="font-normal w-28">Precio</th>
                 {conDescuento && <th className="font-normal w-36">Descuento</th>}
                 <th className="font-normal w-28 text-right pr-3">Importe</th><th className="w-40"></th>
@@ -413,8 +413,8 @@ export default function CapturarVenta() {
                 const med = medida(l.producto);
                 return (
                   <tr key={l.uid} className="border-t border-[var(--borde)] align-top" style={{ background: i % 2 ? "transparent" : "#f7f9fb" }}>
-                    <td className="py-2">{l.producto.sku}</td>
-                    <td className="py-1">
+                    <td className="py-2 pl-2 pr-3 whitespace-nowrap">{l.producto.sku}</td>
+                    <td className="py-1 pr-3">
                       <select className="campo" value={l.unidadId} onChange={(e) => {
                         const nu = l.producto.unidades.find((x) => x.id === e.target.value)!;
                         editar(l.uid, { unidadId: nu.id, precio: nu.precio ?? "0" });
@@ -422,15 +422,17 @@ export default function CapturarVenta() {
                         {l.producto.unidades.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
                       </select>
                     </td>
-                    <td className="py-2">
+                    <td className="py-2 pr-3">
                       {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja, l.producto.formato)}
-                      <button className="ml-2 text-xs px-1 border rounded border-[var(--acento)] text-[var(--acento)]" title="Ver detalle y existencia por almacén"
-                        aria-label="Ver detalle del producto" onClick={() => verDetalle(l.producto)}>👁</button>
+                      <button className="ml-2 align-middle inline-flex items-center justify-center w-6 h-5 border rounded border-[var(--acento)] text-[var(--acento)]" title="Ver detalle y existencia por almacén"
+                        aria-label="Ver detalle del producto" onClick={() => verDetalle(l.producto)}>
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                      </button>
                       {l.producto.tipo === "producto" && exU && (
-                        <div className={`text-xs ${exU.lt(0) || sinEx ? "text-[var(--peligro)] font-semibold" : "text-[var(--tenue)]"}`}>
-                          {totU && <>Exist.: {fmtCantidad(totU, 2)} {u.nombre}{(!u.es_base || med.unidad !== l.producto.unidad_base) && <> ({fmtCantidad(new Decimal(tot!).times(med.porBase), 2)} {med.unidad})</>} · </>}
+                        <div className={`text-xs mt-1 ${exU.lt(0) || sinEx ? "text-[var(--peligro)] font-semibold" : "text-[var(--tenue)]"}`}>
+                          {totU && <>Exist.: {fmtCantidad(totU, 2)} {u.nombre}{(!u.es_base || med.unidad !== l.producto.unidad_base) && u.nombre !== med.unidad && <> ({fmtCantidad(new Decimal(tot!).times(med.porBase), 2)} {med.unidad})</>} · </>}
                           Disp.: {fmtCantidad(exU, 2)} {u.nombre}
-                          {(!u.es_base || med.unidad !== l.producto.unidad_base) && <> ({fmtCantidad(new Decimal(ex!).times(med.porBase), 2)} {med.unidad})</>}
+                          {(!u.es_base || med.unidad !== l.producto.unidad_base) && u.nombre !== med.unidad && <> ({fmtCantidad(new Decimal(ex!).times(med.porBase), 2)} {med.unidad})</>}
                           {sinEx && " · se venderá sin existencia"}
                         </div>
                       )}
