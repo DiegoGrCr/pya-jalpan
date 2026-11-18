@@ -59,3 +59,12 @@ describe("Importe con letra", () => {
   ])("%s", (n, t) => expect(importeConLetra(n)).toBe(t));
   it("fecha larga en hora de México", () => expect(fechaLarga("2026-10-23T03:00:00Z")).toBe("22 de octubre de 2026"));
 });
+
+import { archivoDe } from "@/lib/documentoVenta";
+describe("Nombre de archivo de la remisión", () => {
+  it("Remision_<RFC empresa>_<serie+folio>_<RFC cliente>", () => {
+    expect(archivoDe({ serie: "AR", folio: 14, empresa: { rfc: "AAA010101AAA" }, cliente: { rfc: "XAXX010101000" } }))
+      .toBe("Remision_AAA010101AAA_AR14_XAXX010101000");
+    expect(archivoDe({ serie: "AR", folio: 14 })).toBe("Remision_AR14");
+  });
+});

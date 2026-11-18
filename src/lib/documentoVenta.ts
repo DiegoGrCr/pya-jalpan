@@ -51,8 +51,16 @@ export const EMPRESA_VACIA: EmpresaDoc = {
 };
 
 export const folioDe = (v: Pick<VentaDoc, "serie" | "folio">) => `${v.serie} ${v.folio}`;   // "AR 14"
-/** Nombre de archivo de la nota: "Remision AR-14" (abreviación de la sucursal y número de nota). */
-export const archivoDe = (v: Pick<VentaDoc, "serie" | "folio">) => `Remision ${v.serie}-${v.folio}`;
+/**
+ * Nombre de archivo de la nota, como en las notas anteriores:
+ * "Remision_<RFC empresa>_<serie+folio>_<RFC cliente>" (p. ej. Remision_XAXX010101000_AR14_XAXX010101000).
+ * Las partes que falten se omiten; solo letras, números y guion bajo.
+ */
+export const archivoDe = (v: Pick<VentaDoc, "serie" | "folio"> & { empresa?: { rfc: string | null }; cliente?: { rfc: string | null } }) =>
+  ["Remision", v.empresa?.rfc, `${v.serie}${v.folio}`, v.cliente?.rfc]
+    .filter((x): x is string => !!x && !!String(x).trim())
+    .map((x) => String(x).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9&-]/g, ""))
+    .join("_");
 export const tituloDe = (v: VentaDoc) => `${v.empresa.remision_titulo || "Remisión"} ${folioDe(v)}`;
 export const emisorDe = (v: VentaDoc) => v.empresa.nombre_emisor || v.empresa.razon_social || v.sucursal.nombre;
 export const fechaMx = (iso: string) =>

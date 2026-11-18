@@ -87,7 +87,7 @@ export default function DetalleVenta() {
     if (params.get("nueva")) setMsg({ tipo: "ok", texto: `Venta guardada.${cambio && Number(cambio) > 0 ? ` Cambio: ${mxn(cambio)}.` : ""}` });
   }, []);
 
-  const nombreArchivo = (f: Formato) => `${v ? archivoDe(v) : "Remision"}${f === "carta" ? "" : " ticket"}.pdf`;
+  const nombreArchivo = (f: Formato) => `${v ? archivoDe(v) : "Remision"}${f === "carta" ? "" : "_ticket"}.pdf`;
 
   const conPdf = async (f: Formato, fn: (b: Blob) => void | Promise<void>) => {
     if (!v) return;
