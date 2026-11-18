@@ -6,7 +6,10 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { USUARIO_VALIDO } from "@/lib/usuarios";
 
 interface Almacen { id: string; nombre: string; multisucursal: boolean; activo: boolean }
-interface Sucursal { id: string; codigo: string; nombre: string; cp_expedicion: string | null; activa: boolean; almacenes: Almacen[] }
+interface Sucursal {
+  id: string; codigo: string; nombre: string; cp_expedicion: string | null; activa: boolean; almacenes: Almacen[];
+  series: { tipo_documento: string; prefijo: string; siguiente: number; activa: boolean }[];
+}
 
 interface UsuarioSuc { user_id: string; usuario: string | null; nombre: string; activo: boolean; usuario_sucursales: { sucursal_id: string }[] }
 
@@ -36,7 +39,7 @@ export default function Sucursales() {
     try {
       const sb = supabase();
       const [{ data, error }, perm, us, prop] = await Promise.all([
-        sb.from("sucursales").select("id, codigo, nombre, cp_expedicion, activa, almacenes(id, nombre, multisucursal, activo)").order("codigo"),
+        sb.from("sucursales").select("id, codigo, nombre, cp_expedicion, activa, almacenes(id, nombre, multisucursal, activo), series(tipo_documento, prefijo, siguiente, activa)").order("codigo"),
         sb.rpc("tiene_permiso", { p_permiso: "administrar" }),
         sb.from("perfiles").select("user_id, usuario, nombre, activo, usuario_sucursales(sucursal_id)").order("nombre"),
         sb.rpc("es_propietario"),
@@ -50,6 +53,24 @@ export default function Sucursales() {
   }, []);
 
   useEffect(() => { cargar(); }, [cargar]);
+
+  // Folio de remisiones: abreviación de la sucursal y número con el que sigue (p. ej. AR 1)
+  const [folioPara, setFolioPara] = useState<string | null>(null);
+  const [folio, setFolio] = useState({ prefijo: "", siguiente: "1" });
+  const serieVenta = (s: Sucursal) => s.series?.find((x) => x.tipo_documento === "venta" && x.activa);
+  const guardarFolio = async (s: Sucursal) => {
+    setGuardando(true); setMsg(null);
+    try {
+      const { error } = await supabase().rpc("guardar_serie", { p: { sucursal_id: s.id, tipo_documento: "venta", prefijo: folio.prefijo, siguiente: Number(folio.siguiente) } });
+      if (error) {
+        if (/guardar_serie/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000028_folio_y_almacen_por_renglon.sql en Supabase.");
+        throw error;
+      }
+      setFolioPara(null);
+      setMsg({ tipo: "ok", texto: `${s.nombre}: la próxima remisión será ${folio.prefijo.toUpperCase()} ${folio.siguiente}.` });
+      await cargar();
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setGuardando(false); }
+  };
 
   const crear = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -126,7 +147,7 @@ export default function Sucursales() {
       <div className="overflow-x-auto rounded-lg border bg-[var(--panel)]">
         <table className="w-full text-sm">
           <thead className="text-left opacity-80">
-            <tr><th className="p-2">Código</th><th>Nombre</th><th>CP expedición</th><th>Almacenes</th><th>Usuarios</th><th>Estado</th><th></th></tr>
+            <tr><th className="p-2">Código</th><th>Nombre</th><th>CP expedición</th><th>Folio de remisiones</th><th>Almacenes</th><th>Usuarios</th><th>Estado</th><th></th></tr>
           </thead>
           <tbody>
             {lista.map((s) => (
@@ -134,6 +155,30 @@ export default function Sucursales() {
                 <td className="p-2 font-mono">{s.codigo}</td>
                 <td className="py-2">{s.nombre}</td>
                 <td className="py-2">{s.cp_expedicion ?? "—"}</td>
+                <td className="py-2">
+                  {folioPara === s.id ? (
+                    <div className="flex flex-col gap-1 max-w-[220px]">
+                      <label className="text-xs">Abreviación
+                        <input className="border rounded px-2 py-1 w-full uppercase" maxLength={6} placeholder="p. ej. AR" value={folio.prefijo}
+                          onChange={(e) => setFolio({ ...folio, prefijo: e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase() })} />
+                      </label>
+                      <label className="text-xs">Siguiente número
+                        <input className="border rounded px-2 py-1 w-full" inputMode="numeric" value={folio.siguiente}
+                          onChange={(e) => setFolio({ ...folio, siguiente: e.target.value.replace(/\D/g, "") })} />
+                      </label>
+                      <div className="flex gap-3 text-xs">
+                        <button disabled={guardando || !folio.prefijo || !Number(folio.siguiente)} onClick={() => guardarFolio(s)} className="underline font-semibold">Guardar</button>
+                        <button onClick={() => setFolioPara(null)} className="underline">Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="font-mono">{serieVenta(s) ? `${serieVenta(s)!.prefijo} ${serieVenta(s)!.siguiente}` : "—"}</div>
+                      <div className="text-xs opacity-60">próxima remisión</div>
+                      {admin && <button className="text-xs underline" onClick={() => { const sv = serieVenta(s); setFolioPara(s.id); setFolio({ prefijo: sv?.prefijo ?? "", siguiente: "1" }); }}>Cambiar</button>}
+                    </>
+                  )}
+                </td>
                 <td className="py-2">
                   {s.almacenes.map((a) => <div key={a.id}>{a.nombre}{a.multisucursal ? " (multisucursal)" : ""}</div>)}
                   {propietario && <button onClick={() => agregarAlmacen(s)} className="text-xs underline">+ Agregar almacén</button>}
@@ -164,7 +209,7 @@ export default function Sucursales() {
                 </td>
               </tr>
             ))}
-            {lista.length === 0 && <tr><td colSpan={7} className="p-4 text-center opacity-60">Sin sucursales.</td></tr>}
+            {lista.length === 0 && <tr><td colSpan={8} className="p-4 text-center opacity-60">Sin sucursales.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -24,6 +24,8 @@ interface Linea {
   descTipo?: TipoDesc; descValor?: string; verDesc?: boolean; verComent?: boolean;
   /** Edición: renglón existente y lo ya entregado (en la unidad vendida) */
   partidaId?: string; entregada?: string;
+  /** Almacén (bodega) de donde sale este renglón; vacío = el de la venta */
+  almacenId?: string;
 }
 interface Pago { forma: Forma; importe: string; referencia: string }
 interface Cliente { id: string; nombre: string; rfc: string | null; es_publico_general: boolean; lista_precios_id: string | null; limite_credito: string; dias_credito: number }
@@ -118,18 +120,19 @@ export default function CapturarVenta() {
     const sb = supabase();
     const { data, error } = await sb.from("ventas").select(`id, serie, folio, sucursal_id, almacen_id, tipo, con_abono, pagado, comentarios, orden_compra, sin_iva, cerrada, estado,
       clientes(${CLIENTE_COLS}),
-      venta_partidas(id, renglon, unidad_venta_id, cantidad, cantidad_entregada, precio_unitario, descuento, comentario,
+      venta_partidas(id, renglon, unidad_venta_id, cantidad, cantidad_entregada, precio_unitario, descuento, comentario, almacen_id,
         productos(id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, presentacion, m2_por_caja, piezas_por_caja, formato,
           unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))))`).eq("id", id).maybeSingle();
     if (error) {
       if (/cerrada|con_abono|orden_compra/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000027_ventas_editables.sql en Supabase.");
+      if (/almacen_id/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000028_folio_y_almacen_por_renglon.sql en Supabase.");
       throw error;
     }
     if (!data) throw new Error("No se encontró la venta o no tienes acceso a su sucursal.");
     const v = data as unknown as {
       id: string; serie: string; folio: number; sucursal_id: string; almacen_id: string; tipo: "contado" | "credito"; con_abono: boolean; pagado: string;
       comentarios: string | null; orden_compra: string | null; sin_iva: boolean; cerrada: boolean; estado: string; clientes: Cliente;
-      venta_partidas: { id: string; renglon: number; unidad_venta_id: string; cantidad: string; cantidad_entregada: string; precio_unitario: string; descuento: string; comentario: string | null;
+      venta_partidas: { id: string; renglon: number; unidad_venta_id: string; cantidad: string; cantidad_entregada: string; precio_unitario: string; descuento: string; comentario: string | null; almacen_id: string | null;
         productos: FilaProducto }[];
     };
     if (v.estado !== "confirmada") throw new Error("La venta está cancelada; ya no se puede editar.");
@@ -141,12 +144,14 @@ export default function CapturarVenta() {
       return { uid: crypto.randomUUID(), producto, unidadId: vp.unidad_venta_id, cantidad: String(Number(vp.cantidad)), precio: String(Number(vp.precio_unitario)),
         descuento: "0", entregarAhora: Number(vp.cantidad_entregada) >= Number(vp.cantidad), comentario: vp.comentario ?? "",
         descTipo: "$", descValor: Number(vp.descuento) > 0 ? String(Number(vp.descuento)) : "", verDesc: Number(vp.descuento) > 0,
-        partidaId: vp.id, entregada: String(Number(vp.cantidad_entregada)) };
+        partidaId: vp.id, entregada: String(Number(vp.cantidad_entregada)), almacenId: vp.almacen_id && vp.almacen_id !== v.almacen_id ? vp.almacen_id : undefined };
     });
     setC({ clave: crypto.randomUUID(), sucursalId: v.sucursal_id, almacenId: v.almacen_id, cliente: v.clientes,
       tipo: v.tipo === "credito" ? "credito" : v.con_abono ? "abono" : "contado", lineas, pagos: [], comentarios: v.comentarios ?? "",
-      sinIva: v.sin_iva !== false, ordenCompra: v.orden_compra ?? "", edicion: { ventaId: v.id, folio: `${v.serie}${v.folio}`, pagado: String(v.pagado) } });
-    cargarExistencias([...new Set(lineas.map((l) => l.producto.id))], v.almacen_id);
+      sinIva: v.sin_iva !== false, ordenCompra: v.orden_compra ?? "", edicion: { ventaId: v.id, folio: `${v.serie} ${v.folio}`, pagado: String(v.pagado) } });
+    const porAlm = new Map<string, Set<string>>();
+    for (const l of lineas) { const a = l.almacenId || v.almacen_id; if (!porAlm.has(a)) porAlm.set(a, new Set()); porAlm.get(a)!.add(l.producto.id); }
+    porAlm.forEach((ids, a) => cargarExistencias([...ids], a));
   }
 
   useEffect(() => {
@@ -159,20 +164,26 @@ export default function CapturarVenta() {
   const almacenesSucursal = almacenes.filter((a) => a.sucursal_id === c.sucursalId || a.multisucursal);
   const sucursal = sucursales.find((s) => s.id === c.sucursalId);
 
-  // ---------- existencias del almacén elegido ----------
+  // ---------- existencias por producto y almacén (clave "producto|almacén") ----------
+  const almDe = (l: Linea) => l.almacenId || c.almacenId;
+  const claveEx = (productoId: string, almacenId: string) => `${productoId}|${almacenId}`;
   const cargarExistencias = useCallback(async (ids: string[], almacenId: string) => {
     if (!ids.length || !almacenId) return;
     const { data } = await supabase().from("existencias").select("producto_id, cantidad, apartado").eq("almacen_id", almacenId).in("producto_id", ids);
-    const mapa = Object.fromEntries(ids.map((id) => [id, 0])), tot = { ...mapa };
+    const mapa: Record<string, number> = Object.fromEntries(ids.map((id) => [`${id}|${almacenId}`, 0])), tot = { ...mapa };
     for (const e of (data ?? []) as { producto_id: string; cantidad: string; apartado: string }[]) {
-      mapa[e.producto_id] = Number(e.cantidad) - Number(e.apartado);
-      tot[e.producto_id] = Number(e.cantidad);
+      mapa[`${e.producto_id}|${almacenId}`] = Number(e.cantidad) - Number(e.apartado);
+      tot[`${e.producto_id}|${almacenId}`] = Number(e.cantidad);
     }
     setExistencias((prev) => ({ ...prev, ...mapa }));
     setExistTotal((prev) => ({ ...prev, ...tot }));
   }, []);
 
-  useEffect(() => { cargarExistencias([...new Set(c.lineas.map((l) => l.producto.id))], c.almacenId); }, [c.almacenId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const porAlm = new Map<string, Set<string>>();
+    for (const l of c.lineas) { const a = l.almacenId || c.almacenId; if (!porAlm.has(a)) porAlm.set(a, new Set()); porAlm.get(a)!.add(l.producto.id); }
+    porAlm.forEach((ids, a) => cargarExistencias([...ids], a));
+  }, [c.almacenId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- búsqueda de productos ----------
   const precioDe = useCallback((u: FilaUnidad) => u.precios?.find((p) => p.lista_id === lista?.id)?.precio ?? null, [lista]);
@@ -332,7 +343,8 @@ export default function CapturarVenta() {
         idempotency_key: c.clave, venta_id: c.edicion.ventaId, comentarios: c.comentarios || null, orden_compra: c.ordenCompra?.trim() || null,
         ...(dif ? { diferencia: dif.opcion, devolucion_forma: dif.forma } : {}),
         partidas: c.lineas.map((l, i) => ({ partida_id: l.partidaId ?? null, producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
-          precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora, comentario: l.comentario?.trim() || null })),
+          precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora, comentario: l.comentario?.trim() || null,
+          almacen_id: almDe(l) })),
       } });
       if (error) {
         if (/editar_venta/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000027_ventas_editables.sql en Supabase.");
@@ -357,6 +369,7 @@ export default function CapturarVenta() {
         orden_compra: c.ordenCompra?.trim() || null,
         partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
           precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora,
+          ...(l.almacenId && l.almacenId !== c.almacenId ? { almacen_id: l.almacenId } : {}),
           comentario: l.comentario?.trim() || null })),
         pagos: pagosAplicados.filter((p) => Number(p.importe) > 0).map((p) => ({ forma: p.forma, importe: p.importe, referencia: p.referencia || null })),
       } });
@@ -519,9 +532,10 @@ export default function CapturarVenta() {
             <tbody>
               {c.lineas.map((l, i) => {
                 const u = l.producto.unidades.find((x) => x.id === l.unidadId) as UnidadVenta;
-                const ex = existencias[l.producto.id];
+                const almL = almDe(l);
+                const ex = existencias[claveEx(l.producto.id, almL)];
                 const exU = ex === undefined ? null : new Decimal(ex).div(u.factor);
-                const tot = existTotal[l.producto.id];
+                const tot = existTotal[claveEx(l.producto.id, almL)];
                 const totU = tot === undefined ? null : new Decimal(tot).div(u.factor);
                 const sinEx = l.producto.tipo === "producto" && ex !== undefined && aBase(l.cantidad || 0, u.factor).gt(ex);
                 const invalida = !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion, u.factor);
@@ -536,6 +550,15 @@ export default function CapturarVenta() {
                       }}>
                         {l.producto.unidades.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
                       </select>
+                      {l.producto.tipo === "producto" && (
+                        <label className="block mt-1 text-xs text-[var(--tenue)]" title="Bodega de donde sale este producto">Sale de
+                          <select className={`campo !py-0.5 text-xs ${almL !== c.almacenId ? "!border-[var(--acento)] font-semibold" : ""}`} value={almL}
+                            disabled={Number(l.entregada) > 0}
+                            onChange={(e) => { const a = e.target.value; editar(l.uid, { almacenId: a === c.almacenId ? undefined : a }); cargarExistencias([l.producto.id], a); }}>
+                            {almacenes.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                          </select>
+                        </label>
+                      )}
                     </td>
                     <td className="py-2 pr-3">
                       {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja, l.producto.formato)}

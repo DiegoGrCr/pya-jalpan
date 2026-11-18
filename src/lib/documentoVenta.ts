@@ -23,6 +23,8 @@ export interface PartidaDoc {
   formato?: string | null;
   /** Comentario del renglón (migración 0020) */
   comentario?: string | null;
+  /** Almacén (bodega) de donde sale el renglón (0028) */
+  almacen?: string | null;
 }
 export interface PagoDoc { forma: string; importe: string; referencia: string | null; fecha?: string }
 export interface EmpresaDoc {
@@ -48,7 +50,7 @@ export const EMPRESA_VACIA: EmpresaDoc = {
   remision_titulo: "Remisión", remision_firma: true, remision_desglosa_iva: false,
 };
 
-export const folioDe = (v: Pick<VentaDoc, "serie" | "folio">) => `${v.serie}${v.folio}`;
+export const folioDe = (v: Pick<VentaDoc, "serie" | "folio">) => `${v.serie} ${v.folio}`;   // "AR 14"
 export const tituloDe = (v: VentaDoc) => `${v.empresa.remision_titulo || "Remisión"} ${folioDe(v)}`;
 export const emisorDe = (v: VentaDoc) => v.empresa.nombre_emisor || v.empresa.razon_social || v.sucursal.nombre;
 export const fechaMx = (iso: string) =>
@@ -119,6 +121,10 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
   const ext = extra.error ? null : extra.data as { orden_compra: string | null; vendedor_id: string | null; venta_partidas: { renglon: number; comentario: string | null }[] } | null;
   const capturo = ext?.vendedor_id ? (await nombresUsuarios([ext.vendedor_id]))[ext.vendedor_id] ?? null : null;
   const comentarioDe = (r: number) => ext?.venta_partidas.find((x) => x.renglon === r)?.comentario ?? null;
+  // Almacén de cada renglón (0028); si falta la migración, todos salen del almacén de la venta
+  const alm = await sb.from("venta_partidas").select("renglon, almacenes(nombre)").eq("venta_id", id);
+  const almacenDe = (r: number) => alm.error ? null
+    : ((alm.data ?? []) as unknown as { renglon: number; almacenes: { nombre: string } | null }[]).find((x) => x.renglon === r)?.almacenes?.nombre ?? null;
   return {
     ...resto, orden_compra: ext?.orden_compra ?? null, capturo, sucursal: sucursales, almacen: almacenes?.nombre ?? "", cliente: clientes,
     empresa,
@@ -128,6 +134,7 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
       m2_por_caja: productos.m2_por_caja ?? null,
       formato: productos.formato ?? null,
       comentario: comentarioDe(p.renglon),
+      almacen: almacenDe(p.renglon),
     })),
     pagos: venta_pagos,
   };
@@ -241,6 +248,7 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
       [p.m2_por_pieza ? nombreConCaja(p.nombre, p.m2_por_caja, p.formato)   // pisos: m² que trae la caja, como en las notas
         : p.unidad !== p.unidad_base ? `${nombreConCaja(p.nombre, null, p.formato)} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : nombreConCaja(p.nombre, null, p.formato),
         ...(p.comentario ? [p.comentario] : []),
+        ...(p.almacen && p.almacen !== v.almacen ? [`Sale de: ${p.almacen}`] : []),
         " "].join("\n"), // el último renglón se reserva para la línea de impuesto (letra chica)
       nP(precio), n4(importe),
     ]),
@@ -382,6 +390,7 @@ function pdfTicket(JsPDF: typeof import("jspdf").jsPDF, v: VentaDoc, ancho: 58 |
     for (const f of imp.filas) {
       fila(`${f.p.sku} ${nombreConCaja(f.p.nombre, f.p.m2_por_caja, f.p.formato)}`, "");
       if (f.p.comentario) fila(`  ${f.p.comentario}`, "");
+      if (f.p.almacen && f.p.almacen !== v.almacen) fila(`  Sale de: ${f.p.almacen}`, "");
       fila(`  ${fmtCantidad(f.p.cantidad, 4)} ${f.p.unidad} x ${n2(f.precio)}`, n2(f.importe));
     }
     raya();

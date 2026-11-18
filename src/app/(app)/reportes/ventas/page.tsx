@@ -178,7 +178,7 @@ export default function ReporteVentas() {
         { header: "Total", key: "total", width: 12 }, { header: "Pagos", key: "pagado", width: 12 }, { header: "Saldo", key: "saldo", width: 12 },
         { header: "Estatus", key: "estatus", width: 12 }, { header: "Orden de compra", key: "orden_compra", width: 16 }, { header: "Comentarios", key: "comentarios", width: 30 }];
       for (const v of ordenadas) ws.addRow({
-        folio: `${v.serie}${v.folio}`, fecha: new Date(v.fecha).toLocaleString("es-MX", tz), cliente: v.cliente, sucursal: v.sucursal, almacen: v.almacen,
+        folio: `${v.serie} ${v.folio}`, fecha: new Date(v.fecha).toLocaleString("es-MX", tz), cliente: v.cliente, sucursal: v.sucursal, almacen: v.almacen,
         capturo: v.vendedor_id ? nombres[v.vendedor_id] ?? "" : "", tipo: tipoDe(v), costo: n(v.costo), utilidad: n(v.subtotal) - n(v.descuento) - n(v.costo),
         subtotal: n(v.subtotal), descuento: n(v.descuento), iva: n(v.iva), total: n(v.total), pagado: n(v.pagado), saldo: n(v.saldo),
         estatus: ESTATUS[v.estatus][0], orden_compra: v.orden_compra ?? "", comentarios: v.comentarios ?? "",
@@ -291,7 +291,7 @@ export default function ReporteVentas() {
                     </tr>
                     {expandido === g.clave && g.detalle.map((v) => (
                       <tr key={v.id} className="border-b border-[var(--borde)] text-xs bg-white">
-                        <td className="pl-8 py-1"><Link className="underline" href={`/ventas/${v.id}`}>{v.serie}{v.folio}</Link> · {fechaCorta(v.fecha)} · {v.cliente}</td>
+                        <td className="pl-8 py-1"><Link className="underline" href={`/ventas/${v.id}`}>{v.serie} {v.folio}</Link> · {fechaCorta(v.fecha)} · {v.cliente}</td>
                         <td /><td /><td /><td className="pr-3 text-right">{$(n(v.total))}</td><td className="pr-3 text-right">{$(n(v.pagado))}</td><td className="pr-3 text-right">{$(n(v.saldo))}</td><td /><td />
                       </tr>
                     ))}
@@ -326,7 +326,7 @@ export default function ReporteVentas() {
                       <td className="pr-3 text-right">{$(n(v.total))}</td><td className="pr-3 text-right">{$(n(v.pagado))}</td><td className="pr-3 text-right">{$(n(v.saldo))}</td>
                       <td className="pr-3"><span className={`px-1.5 rounded text-xs ${cls}`} style={v.estatus === "cancelada" ? { background: "var(--peligro)" } : undefined}>{txt}</span></td>
                       <td className="pr-2">
-                        <Link href={`/ventas/${v.id}`} title="Ver detalle" aria-label={`Ver ${v.serie}${v.folio}`}
+                        <Link href={`/ventas/${v.id}`} title="Ver detalle" aria-label={`Ver ${v.serie} ${v.folio}`}
                           className="inline-flex items-center justify-center w-7 h-7 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]">
                           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" /></svg>
                         </Link>

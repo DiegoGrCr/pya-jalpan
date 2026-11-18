@@ -140,7 +140,7 @@ export default function ListaVentas() {
               const sinEntregar = !cancelada && f.venta_partidas.some((p) => Number(p.cantidad_entregada) < Number(p.cantidad));
               return (
                 <tr key={f.id} className="border-b border-[var(--borde)]" style={{ background: i % 2 ? "transparent" : "#f7f9fb", opacity: cancelada ? 0.6 : 1 }}>
-                  <td className="p-2 whitespace-nowrap"><Link className="underline" href={`/ventas/${f.id}`}>{f.serie}{f.folio}</Link></td>
+                  <td className="p-2 whitespace-nowrap"><Link className="underline" href={`/ventas/${f.id}`}>{f.serie} {f.folio}</Link></td>
                   <td className="pr-3">Remisión</td>
                   <td className="pr-3 whitespace-nowrap">{fechaCorta(f.fecha)}</td>
                   <td className="pr-3">{f.clientes?.razon_social || f.clientes?.nombre}</td>
@@ -159,7 +159,7 @@ export default function ListaVentas() {
                     {sinEntregar && <span className="ml-1 px-1.5 rounded text-xs bg-amber-100 text-amber-900" title="Tiene material por entregar">Por entregar</span>}
                   </td>
                   <td className="pr-2 text-center">
-                    <Link href={`/ventas/${f.id}`} title="Ver detalle" aria-label={`Ver detalle de ${f.serie}${f.folio}`}
+                    <Link href={`/ventas/${f.id}`} title="Ver detalle" aria-label={`Ver detalle de ${f.serie} ${f.folio}`}
                       className="inline-flex items-center justify-center w-7 h-7 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]">
                       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" /></svg>
                     </Link>

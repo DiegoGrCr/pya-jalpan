@@ -186,7 +186,7 @@ export default function PuntoDeVenta() {
         },
       });
       if (error) throw error;
-      setExito({ id: data.venta_id, folio: `${data.serie}${data.folio}`, cambio: Number(data.cambio), avisos: data.avisos ?? [] });
+      setExito({ id: data.venta_id, folio: `${data.serie} ${data.folio}`, cambio: Number(data.cambio), avisos: data.avisos ?? [] });
       setCarrito(nuevoCarrito()); setPagos([{ forma: "efectivo", importe: "", referencia: "" }]); setCobrando(false);
     } catch (e) {
       const m = mensajeError(e);

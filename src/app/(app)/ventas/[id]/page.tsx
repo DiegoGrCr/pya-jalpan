@@ -359,6 +359,7 @@ export default function DetalleVenta() {
                         <td className="py-2 pr-3">{nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}
                           {p.unidad !== p.unidad_base && <div className="text-xs text-[var(--tenue)]">= {fmtCantidad(p.cantidad_base)} {p.unidad_base}</div>}
                           {p.comentario && <div className="text-xs italic">{p.comentario}</div>}
+                          {p.almacen && p.almacen !== v.almacen && <div className="text-xs font-semibold" style={{ color: "var(--acento)" }}>Sale de: {p.almacen}</div>}
                           {p.vendida_sin_existencia && <div className="text-xs text-[var(--peligro)]">Vendida sin existencia suficiente</div>}
                         </td>
                         <td className="py-2 pr-3 text-right">{fmtCantidad(p.cantidad)}</td>

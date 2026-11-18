@@ -28,7 +28,7 @@ describe("Documento de venta", () => {
   });
   it("resumen para WhatsApp/correo", () => {
     const t = resumenTexto(venta);
-    expect(t).toContain("Remisión PV12");
+    expect(t).toContain("Remisión PV 12");   // folio "serie número"
     expect(t).toContain("2 CAJA Piso Demo 60x60");
   });
 
