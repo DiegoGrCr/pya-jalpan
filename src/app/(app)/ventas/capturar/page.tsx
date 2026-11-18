@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { useRouter } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { ProductoVenta, UnidadVenta, aBase, ajustarCantidad, calcularPartida, cantidadValida, fmtCantidad, medida, unidadesNecesarias } from "@/lib/unidades";
+import { ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, fmtCantidad, medida, unidadesNecesarias } from "@/lib/unidades";
 
 type Forma = "efectivo" | "transferencia" | "tarjeta_debito" | "tarjeta_credito";
 const FORMAS: Record<Forma, string> = {
@@ -317,7 +317,7 @@ export default function CapturarVenta() {
                       </select>
                     </td>
                     <td className="py-2">
-                      {l.producto.nombre}
+                      {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja)}
                       {l.producto.tipo === "producto" && exU && (
                         <div className={`text-xs ${exU.lt(0) || sinEx ? "text-[var(--peligro)] font-semibold" : "text-[var(--tenue)]"}`}>
                           Exist.: {fmtCantidad(exU, 2)} {u.nombre}

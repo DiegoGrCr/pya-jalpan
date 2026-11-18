@@ -5,7 +5,7 @@
  * partidas, importe con letra y totales, notas, condiciones generales y firma del cliente.
  */
 import { supabase } from "@/lib/supabase/client";
-import { fmtCantidad, mxn } from "@/lib/unidades";
+import { fmtCantidad, mxn, nombreConCaja } from "@/lib/unidades";
 import { fechaCorta, fechaLarga, importeConLetra } from "@/lib/letras";
 
 export const FORMAS_PAGO: Record<string, string> = {
@@ -19,6 +19,7 @@ export interface PartidaDoc {
   iva_tasa: string; ieps_tasa: string; vendida_sin_existencia: boolean;
   /** Pisos (inventario en piezas): m² por pieza para mostrar la equivalencia en m² */
   m2_por_pieza?: number | null;
+  m2_por_caja?: string | null;
 }
 export interface PagoDoc { forma: string; importe: string; referencia: string | null }
 export interface EmpresaDoc {
@@ -104,6 +105,7 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
     partidas: [...venta_partidas].sort((a, b) => a.renglon - b.renglon).map(({ productos, unidad_nombre, ...p }) => ({
       ...p, sku: productos.sku, nombre: productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
       m2_por_pieza: productos.m2_por_caja && productos.piezas_por_caja ? Number(productos.m2_por_caja) / productos.piezas_por_caja : null,
+      m2_por_caja: productos.m2_por_caja ?? null,
     })),
     pagos: venta_pagos,
   };
@@ -213,7 +215,7 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
     head: [["Cód.", "Cant.", "Unidad.", "Descripción", "Precio\nUnitario", "Importe"]],
     body: imp.filas.map(({ p, precio, importe }) => [
       p.sku, n4(p.cantidad), p.unidad,
-      [p.m2_por_pieza ? `${p.nombre} (${fmtCantidad(Number(p.cantidad_base) * p.m2_por_pieza, 4)} M2)`
+      [p.m2_por_pieza ? nombreConCaja(p.nombre, p.m2_por_caja)   // pisos: m² que trae la caja, como en las notas
         : p.unidad !== p.unidad_base ? `${p.nombre} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : p.nombre,
         " "].join("\n"), // el último renglón se reserva para la línea de impuesto (letra chica)
       nP(precio), n4(importe),
@@ -354,7 +356,7 @@ function pdfTicket(JsPDF: typeof import("jspdf").jsPDF, v: VentaDoc, ancho: 58 |
     if (v.estado === "cancelada") centro("*** CANCELADA ***", true, fs + 2);
     y += 1; raya();
     for (const f of imp.filas) {
-      fila(`${f.p.sku} ${f.p.nombre}`, "");
+      fila(`${f.p.sku} ${nombreConCaja(f.p.nombre, f.p.m2_por_caja)}`, "");
       fila(`  ${fmtCantidad(f.p.cantidad, 4)} ${f.p.unidad} x ${n2(f.precio)}`, n2(f.importe));
     }
     raya();

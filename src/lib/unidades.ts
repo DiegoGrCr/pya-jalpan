@@ -123,3 +123,10 @@ export const mxn = (v: Decimal.Value) =>
 /** Precio unitario: como da, hasta 6 decimales (mínimo 2). $25.005, $175.035 */
 export const mxnPrecio = (v: Decimal.Value) =>
   D(v).toNumber().toLocaleString("es-MX", { style: "currency", currency: "MXN", minimumFractionDigits: 2, maximumFractionDigits: 6 });
+
+/** Pisos: nombre seguido de los m² que trae la caja ("Sandstone White 1.26"), salvo que el nombre ya los traiga. */
+export function nombreConCaja(nombre: string, m2PorCaja?: string | number | null): string {
+  if (!m2PorCaja || !(Number(m2PorCaja) > 0)) return nombre;
+  const m2 = fmtCantidad(m2PorCaja, 4).replace(/,/g, "");
+  return nombre.split(/\s+/).includes(m2) ? nombre : `${nombre} ${m2}`;
+}

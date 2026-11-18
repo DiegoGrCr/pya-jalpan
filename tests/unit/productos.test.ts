@@ -96,3 +96,12 @@ describe("Cantidades en M2", () => {
     expect(cantidadValida("3", false, "12")).toBe(true);
   });
 });
+
+import { nombreConCaja } from "@/lib/unidades";
+describe("Nombre con m² por caja", () => {
+  it("agrega los m² de la caja salvo que el nombre ya los traiga", () => {
+    expect(nombreConCaja("30X60 Sandstone White", "1.26")).toBe("30X60 Sandstone White 1.26");
+    expect(nombreConCaja("30X60 Sandstone White 1.26", "1.260000")).toBe("30X60 Sandstone White 1.26");
+    expect(nombreConCaja("Adhesivo", null)).toBe("Adhesivo");
+  });
+});

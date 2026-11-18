@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import {
-  ProductoVenta, UnidadVenta, aBase, ajustarCantidad, calcularPartida, cantidadValida, equivalencia, fmtCantidad, mxn, mxnPrecio, unidadesNecesarias,
+  ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, equivalencia, fmtCantidad, mxn, mxnPrecio, unidadesNecesarias,
 } from "@/lib/unidades";
 
 interface Linea {
@@ -100,7 +100,7 @@ export default function PuntoDeVenta() {
     if (!ctx || texto.trim().length < 2) { setResultados([]); return; }
     try {
       const t = texto.trim().replace(/[%,()]/g, "");
-      const sel = "id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, codigo_barras, unidades_venta(id, nombre, factor, es_base, codigo_barras, orden, precios(precio, lista_id))";
+      const sel = "id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, codigo_barras, presentacion, m2_por_caja, piezas_por_caja, unidades_venta(id, nombre, factor, es_base, codigo_barras, orden, precios(precio, lista_id))";
       const { data, error } = await supabase().from("productos").select(sel).eq("activo", true)
         .or(`sku.ilike.%${t}%,nombre.ilike.%${t}%,codigo_barras.eq.${t}`).limit(15);
       if (error) throw error;
@@ -253,7 +253,7 @@ export default function PuntoDeVenta() {
               return (
                 <tr key={l.uid} className="border-t">
                   <td className="py-2">
-                    {l.producto.nombre}
+                    {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja)}
                     {sinExistencia && <div className="text-xs text-red-600">Sin existencia suficiente: se venderá con aviso</div>}
                   </td>
                   <td>
