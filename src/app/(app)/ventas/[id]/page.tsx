@@ -11,6 +11,7 @@ import { useParams } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtCantidad, fmtImporte, fmtPrecio, mxn, nombreConCaja } from "@/lib/unidades";
 import { copiarImagen, pdfAPng } from "@/lib/notaImagen";
+import EstatusVenta from "@/components/EstatusVenta";
 import { FORMAS_PAGO, VentaDoc, archivoDe, cargarVenta, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
 
 type Formato = "carta" | "ticket80" | "ticket58";
@@ -324,13 +325,8 @@ export default function DetalleVenta() {
                 </div>
                 <div>
                   <div className="py-0.5"><span className="font-medium">Estatus:</span>{" "}
-                    {cancelada
-                      ? <span className="px-1.5 rounded text-xs text-white" style={{ background: "var(--peligro)" }}>Cancelada</span>
-                      : cierre.cerrada
-                        ? <span className="px-1.5 rounded text-xs bg-slate-200 text-slate-800">Cerrada</span>
-                        : <span className="px-1.5 rounded text-xs bg-emerald-100 text-emerald-900">Abierta</span>}
+                    <EstatusVenta estado={v.estado} saldo={v.saldo} cerrada={cierre.disponible ? cierre.cerrada : null} porEntregar={!cancelada && pendienteEntrega(v)} />
                     {cierre.ediciones > 0 && <span className="ml-1 px-1.5 rounded text-xs bg-sky-100 text-sky-900">Editada {cierre.ediciones}×</span>}
-                    {!cancelada && pendienteEntrega(v) && <span className="ml-1 px-1.5 rounded text-xs bg-amber-100 text-amber-900">Entrega pendiente</span>}
                     {v.factura_uuid && <span className="ml-1 px-1.5 rounded text-xs bg-sky-100 text-sky-900">Facturada</span>}
                   </div>
                   <Dato k="RFC">{v.cliente.rfc ?? ""}</Dato>

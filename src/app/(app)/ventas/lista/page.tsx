@@ -9,12 +9,14 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
+import EstatusVenta from "@/components/EstatusVenta";
 
 interface Fila {
   id: string; serie: string; folio: number; fecha: string; tipo: "contado" | "credito"; estado: "confirmada" | "cancelada";
   subtotal: string; descuento: string; iva: string; ieps: string; total: string; saldo: string; vencimiento: string | null; vendedor_id: string | null;
   sucursales: { codigo: string; nombre: string } | null; almacenes: { nombre: string } | null; clientes: { nombre: string; razon_social: string | null } | null;
   venta_partidas: { cantidad: string; cantidad_entregada: string }[];
+  cerrada?: boolean;
 }
 interface Sucursal { id: string; codigo: string; nombre: string }
 
@@ -32,7 +34,7 @@ export default function ListaVentas() {
   const [desde, setDesde] = useState(haceDias(30));
   const [hasta, setHasta] = useState(hoyMx());
   const [sucursal, setSucursal] = useState("");
-  const [estatus, setEstatus] = useState<"" | "activa" | "cancelada" | "pendiente_pago" | "pendiente_entrega">("");
+  const [estatus, setEstatus] = useState<"" | "abierta" | "pagada_abierta" | "cerrada" | "cancelada" | "pendiente_pago" | "pendiente_entrega">("");
   const [tipo, setTipo] = useState<"" | "contado" | "credito">("");
   const [pagina, setPagina] = useState(0);
   const [cargando, setCargando] = useState(true);
@@ -50,14 +52,16 @@ export default function ListaVentas() {
     try {
       const sb = supabase();
       let q = sb.from("ventas")
-        .select("id, serie, folio, fecha, tipo, estado, subtotal, descuento, iva, ieps, total, saldo, vencimiento, vendedor_id, sucursales(codigo, nombre), almacenes(nombre), clientes(nombre, razon_social), venta_partidas(cantidad, cantidad_entregada)", { count: "exact" })
+        .select("id, serie, folio, fecha, tipo, estado, subtotal, descuento, iva, ieps, total, saldo, vencimiento, vendedor_id, cerrada, sucursales(codigo, nombre), almacenes(nombre), clientes(nombre, razon_social), venta_partidas(cantidad, cantidad_entregada)", { count: "exact" })
         .order("fecha", { ascending: false }).range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
       // Fechas en hora del centro de México
       if (desde) q = q.gte("fecha", `${desde}T00:00:00-06:00`);
       if (hasta) q = q.lte("fecha", `${hasta}T23:59:59.999-06:00`);
       if (sucursal) q = q.eq("sucursal_id", sucursal);
       if (tipo) q = q.eq("tipo", tipo);
-      if (estatus === "activa") q = q.eq("estado", "confirmada");
+      if (estatus === "abierta") q = q.eq("estado", "confirmada").eq("cerrada", false);
+      if (estatus === "pagada_abierta") q = q.eq("estado", "confirmada").eq("cerrada", false).lte("saldo", 0);
+      if (estatus === "cerrada") q = q.eq("estado", "confirmada").eq("cerrada", true);
       if (estatus === "cancelada") q = q.eq("estado", "cancelada");
       if (estatus === "pendiente_pago") q = q.eq("estado", "confirmada").gt("saldo", 0);
       const t = texto.trim().replace(/[%,()]/g, "");
@@ -72,7 +76,10 @@ export default function ListaVentas() {
         }
       }
       const { data, error, count } = await q;
-      if (error) throw error;
+      if (error) {
+        if (/cerrada/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000027_ventas_editables.sql en Supabase.");
+        throw error;
+      }
       let f = (data ?? []) as unknown as Fila[];
       // Entrega pendiente se calcula con los renglones (filtro sobre la página cargada)
       if (estatus === "pendiente_entrega") f = f.filter((x) => x.estado === "confirmada" && x.venta_partidas.some((p) => Number(p.cantidad_entregada) < Number(p.cantidad)));
@@ -110,8 +117,9 @@ export default function ListaVentas() {
         <div className="grid grid-cols-2 gap-2">
           <label>Estatus
             <select className="campo" value={estatus} onChange={(e) => setEstatus(e.target.value as typeof estatus)}>
-              <option value="">Todas</option><option value="activa">Activas</option><option value="cancelada">Canceladas</option>
-              <option value="pendiente_pago">Con saldo</option><option value="pendiente_entrega">Entrega pendiente</option>
+              <option value="">Todas</option><option value="abierta">Abiertas</option><option value="pagada_abierta">Pagadas sin cerrar</option>
+              <option value="cerrada">Cerradas</option><option value="pendiente_pago">Con saldo</option>
+              <option value="pendiente_entrega">Por entregar</option><option value="cancelada">Canceladas</option>
             </select>
           </label>
           <label>Tipo
@@ -152,12 +160,7 @@ export default function ListaVentas() {
                   <td className="pr-3 text-right whitespace-nowrap">${fmtImporte(Number(f.iva) + Number(f.ieps))}</td>
                   <td className="pr-3 text-right whitespace-nowrap">${fmtImporte(f.total)}</td>
                   <td className="pr-3 text-right whitespace-nowrap">{cancelada ? "" : `$${fmtImporte(f.saldo)}`}</td>
-                  <td className="pr-3 whitespace-nowrap">
-                    {cancelada
-                      ? <span className="px-1.5 rounded text-xs text-white" style={{ background: "var(--peligro)" }}>Cancelada</span>
-                      : <span className="px-1.5 rounded text-xs bg-emerald-100 text-emerald-900">Activa</span>}
-                    {sinEntregar && <span className="ml-1 px-1.5 rounded text-xs bg-amber-100 text-amber-900" title="Tiene material por entregar">Por entregar</span>}
-                  </td>
+                  <td className="pr-3"><EstatusVenta estado={f.estado} saldo={f.saldo} cerrada={f.cerrada} porEntregar={sinEntregar} /></td>
                   <td className="pr-2 text-center">
                     <Link href={`/ventas/${f.id}`} title="Ver detalle" aria-label={`Ver detalle de ${f.serie} ${f.folio}`}
                       className="inline-flex items-center justify-center w-7 h-7 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]">

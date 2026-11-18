@@ -9,12 +9,13 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtCantidad, fmtImporte, nombreConCaja } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
+import EstatusVenta from "@/components/EstatusVenta";
 
 interface Venta {
   id: string; serie: string; folio: number; fecha: string; cliente: string | null; cliente_id: string | null; sucursal: string | null; almacen: string | null;
   vendedor_id: string | null; tipo: "contado" | "credito"; con_abono: boolean; estado: string; estatus: "pagada" | "activa" | "cancelada";
   subtotal: string; descuento: string; iva: string; ieps: string; total: string; pagado: string; saldo: string; costo: string;
-  orden_compra: string | null; comentarios: string | null;
+  orden_compra: string | null; comentarios: string | null; cerrada?: boolean;
 }
 interface Partida {
   venta_id: string; fecha: string; estado: string; producto_id: string; sku: string; producto: string; formato: string | null;
@@ -28,7 +29,8 @@ const AGRUPAR: [Agrupar, string][] = [["", "Sin agrupar"], ["cliente", "Cliente"
   ["almacen", "Almacén"], ["mes", "Mes"], ["dia", "Día"], ["estatus", "Estatus"], ["tipo", "Tipo de venta"], ["producto", "Producto"],
   ["categoria", "Categoría"], ["marca", "Marca"]];
 const POR_PARTIDA: Agrupar[] = ["producto", "categoria", "marca"];
-const ESTATUS = { pagada: ["Pagada", "bg-emerald-100 text-emerald-900"], activa: ["Activa", "bg-amber-100 text-amber-900"], cancelada: ["Cancelada", "text-white"] } as const;
+const ESTATUS = { pagada: ["Pagada", "bg-emerald-100 text-emerald-900"], activa: ["Con saldo", "bg-amber-100 text-amber-900"], cancelada: ["Cancelada", "text-white"] } as const;
+const cierreDe = (v: Venta) => v.estatus === "cancelada" || v.cerrada == null ? "" : v.cerrada ? "Cerrada" : "Abierta";
 
 const tz = { timeZone: "America/Mexico_City" } as const;
 const hoy = () => new Date().toLocaleDateString("en-CA", tz);
@@ -39,7 +41,7 @@ const $ = (x: number) => `$${fmtImporte(x)}`;
 const tipoDe = (v: Venta) => (v.tipo === "credito" ? "Crédito" : v.con_abono ? "Contado con abono" : "Contado");
 
 const FILTROS_VACIOS = {
-  desde: inicioMes(), hasta: hoy(), sucursal_id: "", almacen_id: "", vendedor_id: "", cliente: "", estatus: "", tipo: "",
+  desde: inicioMes(), hasta: hoy(), sucursal_id: "", almacen_id: "", vendedor_id: "", cliente: "", estatus: "", cierre: "", tipo: "",
   producto: "", categoria_id: "", marca_id: "", orden_compra: "", serie: "", comentario: "",
 };
 
@@ -147,7 +149,7 @@ export default function ReporteVentas() {
           : agrupar === "almacen" ? [v.almacen ?? "", v.almacen ?? "—"]
           : agrupar === "mes" ? [fecha.toLocaleDateString("en-CA", tz).slice(0, 7), fecha.toLocaleDateString("es-MX", { ...tz, month: "long", year: "numeric" })]
           : agrupar === "dia" ? [fecha.toLocaleDateString("en-CA", tz), fecha.toLocaleDateString("es-MX", { ...tz, weekday: "short", day: "2-digit", month: "short", year: "numeric" })]
-          : agrupar === "estatus" ? [v.estatus, ESTATUS[v.estatus][0]]
+          : agrupar === "estatus" ? [`${v.estatus}${cierreDe(v)}`, [ESTATUS[v.estatus][0], cierreDe(v)].filter(Boolean).join(" · ")]
           : [tipoDe(v), tipoDe(v)];
         const g = nuevo(clave, nombre);
         g.ventas.add(v.id); g.subtotal += n(v.subtotal); g.descuento += n(v.descuento); g.total += n(v.total);
@@ -181,7 +183,7 @@ export default function ReporteVentas() {
         folio: `${v.serie} ${v.folio}`, fecha: new Date(v.fecha).toLocaleString("es-MX", tz), cliente: v.cliente, sucursal: v.sucursal, almacen: v.almacen,
         capturo: v.vendedor_id ? nombres[v.vendedor_id] ?? "" : "", tipo: tipoDe(v), costo: n(v.costo), utilidad: n(v.subtotal) - n(v.descuento) - n(v.costo),
         subtotal: n(v.subtotal), descuento: n(v.descuento), iva: n(v.iva), total: n(v.total), pagado: n(v.pagado), saldo: n(v.saldo),
-        estatus: ESTATUS[v.estatus][0], orden_compra: v.orden_compra ?? "", comentarios: v.comentarios ?? "",
+        estatus: [ESTATUS[v.estatus][0], cierreDe(v)].filter(Boolean).join(" · "), orden_compra: v.orden_compra ?? "", comentarios: v.comentarios ?? "",
       });
     }
     ws.getRow(1).font = { bold: true };
@@ -230,7 +232,13 @@ export default function ReporteVentas() {
             <label>Hasta<input type="date" className="campo" value={f.hasta} onChange={(e) => set("hasta", e.target.value)} /></label>
             <label>Estatus
               <select className="campo" value={f.estatus} onChange={(e) => set("estatus", e.target.value)}>
-                <option value="">Todos</option><option value="pagada">Pagada</option><option value="activa">Activa (con saldo)</option><option value="cancelada">Cancelada</option>
+                <option value="">Todos</option><option value="pagada">Pagada</option><option value="pagada_abierta">Pagada sin cerrar</option>
+                <option value="activa">Con saldo</option><option value="cancelada">Cancelada</option>
+              </select>
+            </label>
+            <label>Cierre
+              <select className="campo" value={f.cierre} onChange={(e) => set("cierre", e.target.value)}>
+                <option value="">Todas</option><option value="abierta">Abiertas</option><option value="cerrada">Cerradas</option>
               </select>
             </label>
             <label>Tipo de venta
@@ -313,7 +321,6 @@ export default function ReporteVentas() {
               </thead>
               <tbody>
                 {visibles.map((v, i) => {
-                  const [txt, cls] = ESTATUS[v.estatus];
                   return (
                     <tr key={v.id} className="border-b border-[var(--borde)]" style={{ background: i % 2 ? undefined : "#f7f9fb" }}>
                       <td className="p-2 whitespace-nowrap">{v.serie} {v.folio}</td>
@@ -324,7 +331,7 @@ export default function ReporteVentas() {
                       <td className="pr-3 text-right">{$(n(v.subtotal))}</td><td className="pr-3 text-right">{$(n(v.descuento))}</td>
                       <td className="pr-3 text-right">{$(n(v.iva))}</td>{conIeps && <td className="pr-3 text-right">{$(n(v.ieps))}</td>}
                       <td className="pr-3 text-right">{$(n(v.total))}</td><td className="pr-3 text-right">{$(n(v.pagado))}</td><td className="pr-3 text-right">{$(n(v.saldo))}</td>
-                      <td className="pr-3"><span className={`px-1.5 rounded text-xs ${cls}`} style={v.estatus === "cancelada" ? { background: "var(--peligro)" } : undefined}>{txt}</span></td>
+                      <td className="pr-3"><EstatusVenta estado={v.estado} saldo={v.saldo} cerrada={v.cerrada} /></td>
                       <td className="pr-2">
                         <Link href={`/ventas/${v.id}`} title="Ver detalle" aria-label={`Ver ${v.serie} ${v.folio}`}
                           className="inline-flex items-center justify-center w-7 h-7 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]">

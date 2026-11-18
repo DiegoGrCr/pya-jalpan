@@ -30,3 +30,14 @@ describe("reporte_ventas", () => {
     expect(r[0].producto_id).toBe(s.piso.id);
   });
 });
+
+describe("reporte_ventas: cierre", () => {
+  it("filtra pagadas sin cerrar y cerradas", async () => {
+    const [v] = await consulta(s.cajeroA, "reporte_ventas", { orden_compra: "OC-77" });
+    expect(v.cerrada).toBe(false);
+    expect(await consulta(s.cajeroA, "reporte_ventas", { orden_compra: "OC-77", estatus: "pagada_abierta" })).toHaveLength(1);
+    await asUser(s.cajeroA, (c) => c.query(`select public.cerrar_venta($1)`, [v.id]));
+    expect(await consulta(s.cajeroA, "reporte_ventas", { orden_compra: "OC-77", estatus: "pagada_abierta" })).toHaveLength(0);
+    expect(await consulta(s.cajeroA, "reporte_ventas", { orden_compra: "OC-77", cierre: "cerrada" })).toHaveLength(1);
+  });
+});
