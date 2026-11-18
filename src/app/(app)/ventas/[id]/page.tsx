@@ -31,6 +31,11 @@ export default function DetalleVenta() {
   const [cierre, setCierre] = useState<{ cerrada: boolean; ediciones: number; disponible: boolean; conAbono?: boolean }>({ cerrada: false, ediciones: 0, disponible: false });
   const [historial, setHistorial] = useState<{ fecha: string; accion: string; usuario: string; detalle: Record<string, unknown> }[] | null>(null);
   const [devoluciones, setDevoluciones] = useState<{ fecha: string; forma: string; importe: string }[]>([]);
+  // Devolución de productos (0038)
+  type DevProd = { id: string; fecha: string; destino: string; forma: string | null; importe: string; motivo: string; partidas: { producto: string; unidad: string; cantidad: number; importe: number }[] };
+  const [devProd, setDevProd] = useState<DevProd[] | null>(null);
+  const [renglones, setRenglones] = useState<{ id: string; renglon: number; cantidad_entregada: number; cantidad_devuelta: number }[]>([]);
+  const [devolucion, setDevolucion] = useState<{ clave: string; cantidades: Record<string, string>; motivo: string; detalle: string; destino: "saldo_favor" | "dinero"; forma: string } | null>(null);
   const [cancelacion, setCancelacion] = useState<{ motivo: string; detalle: string } | null>(null);
   const [pago, setPago] = useState<{ clave: string; forma: string; importe: string; referencia: string; comentarios: string } | null>(null);
 
@@ -46,16 +51,40 @@ export default function DetalleVenta() {
     try {
       setV(await cargarVenta(id));
       const sb = supabase();
-      const [ex, dv] = await Promise.all([
+      const [ex, dv, dp, rg] = await Promise.all([
         sb.from("ventas").select("cerrada, ediciones, con_abono").eq("id", id).maybeSingle(),
         sb.from("venta_devoluciones").select("fecha, forma, importe").eq("venta_id", id).order("fecha"),
+        sb.from("devoluciones_producto").select("id, fecha, destino, forma, importe, motivo, partidas").eq("venta_id", id).order("fecha"),
+        sb.from("venta_partidas").select("id, renglon, cantidad_entregada, cantidad_devuelta").eq("venta_id", id),
       ]);
+      setDevProd(dp.error ? null : (dp.data ?? []) as DevProd[]);
+      setRenglones(rg.error ? [] : ((rg.data ?? []) as { id: string; renglon: number; cantidad_entregada: string; cantidad_devuelta: string }[])
+        .map((x) => ({ id: x.id, renglon: x.renglon, cantidad_entregada: Number(x.cantidad_entregada), cantidad_devuelta: Number(x.cantidad_devuelta) })));
       const d = ex.data as { cerrada: boolean; ediciones: number; con_abono: boolean } | null;
       setCierre(ex.error || !d ? { cerrada: false, ediciones: 0, disponible: false } : { cerrada: d.cerrada, ediciones: d.ediciones, conAbono: d.con_abono, disponible: true });
       setDevoluciones(dv.error ? [] : (dv.data ?? []) as { fecha: string; forma: string; importe: string }[]);
       setHistorial(null);
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setCargando(false); }
   }, [id]);
+
+  const guardarDevolucion = async () => {
+    if (!v || !devolucion) return;
+    const motivo = [devolucion.motivo, devolucion.detalle.trim()].filter(Boolean).join(": ");
+    if (!devolucion.motivo || (devolucion.motivo === "Otro" && !devolucion.detalle.trim())) { setMsg({ tipo: "error", texto: "Indica el motivo de la devolución." }); return; }
+    setTrabajando(true);
+    try {
+      const partidas = Object.entries(devolucion.cantidades).filter(([, c]) => Number(c) > 0).map(([partida_id, cantidad]) => ({ partida_id, cantidad }));
+      const { data, error } = await supabase().rpc("devolver_productos", { p: { idempotency_key: devolucion.clave, venta_id: v.id, motivo,
+        destino: devolucion.destino, forma: devolucion.destino === "dinero" ? devolucion.forma : null, partidas } });
+      if (error) {
+        if (/devolver_productos/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000038_cartera_devoluciones.sql en Supabase.");
+        throw error;
+      }
+      setDevolucion(null);
+      setMsg({ tipo: "ok", texto: `Devolución registrada por ${mxn(data.importe)}${devolucion.destino === "saldo_favor" ? " a favor del cliente" : ""}.` });
+      await recargar();
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
+  };
 
   const cargarHistorial = async () => {
     const { data, error } = await supabase().rpc("historial_venta", { p_venta: id });
@@ -235,6 +264,9 @@ export default function DetalleVenta() {
         nota: cierre.disponible ? undefined : "Falta ejecutar la migración 20261118000027_ventas_editables.sql" },
       { texto: "Cerrar venta", fn: cerrarVenta, deshabilitado: !cierre.disponible },
     ] : []),
+    ...(!cancelada && devProd !== null ? [{ texto: "Devolver productos", fn: () => setDevolucion({ clave: crypto.randomUUID(), cantidades: {}, motivo: "", detalle: "",
+        destino: v.cliente.es_publico_general ? "dinero" as const : "saldo_favor" as const, forma: "efectivo" }),
+      deshabilitado: !renglones.some((r) => r.cantidad_entregada - r.cantidad_devuelta > 0), nota: "Solo se devuelve material ya entregado" }] : []),
     { texto: "Registrar pago", fn: () => setPago({ clave: crypto.randomUUID(), forma: "efectivo", importe: Number(v.saldo).toFixed(2), referencia: "", comentarios: "" }),
       deshabilitado: cancelada || !(Number(v.saldo) > 0), nota: Number(v.saldo) > 0 ? undefined : "La venta no tiene saldo pendiente" },
     { texto: "Imprimir ticket", fn: () => imprimir(ticket) },
@@ -336,6 +368,19 @@ export default function DetalleVenta() {
                 </div>
               </div>
 
+              {devProd && devProd.length > 0 && (
+                <div className="mt-4 rounded border border-orange-200 bg-orange-50 px-3 py-2">
+                  <div className="font-medium text-orange-900">Devoluciones de producto</div>
+                  <ul className="mt-1 flex flex-col gap-1">
+                    {devProd.map((d) => (
+                      <li key={d.id}>
+                        <span className="text-[var(--tenue)]">{fechaMx(d.fecha)}</span> · {d.partidas.map((x) => `${fmtCantidad(x.cantidad)} ${x.unidad} ${x.producto}`).join(", ")}
+                        {" "}· <b>{mxn(d.importe)}</b> {d.destino === "saldo_favor" ? "a favor del cliente" : `devueltos (${FORMAS_PAGO[d.forma ?? ""] ?? d.forma})`} · {d.motivo}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="mt-5 text-[var(--tenue)]">Productos</div>
               <div className="overflow-x-auto mt-1">
                 <table className="w-full min-w-[760px]">
@@ -378,6 +423,7 @@ export default function DetalleVenta() {
                       const d = h.detalle as { total?: string; exceso?: string; diferencia?: string; motivo?: string; forma?: string; importe?: string; antes?: { total?: string } };
                       const texto = h.accion === "editar" ? `Editó la venta: total ${mxn(d.antes?.total ?? 0)} → ${mxn(d.total ?? 0)}${Number(d.exceso) > 0 ? ` · diferencia de ${mxn(d.exceso!)} ${d.diferencia === "saldo_favor" ? "dejada a favor del cliente" : "devuelta"}` : ""}`
                         : h.accion === "cerrar" ? "Cerró la venta"
+                        : h.accion === "devolucion" ? `Registró una devolución de ${mxn(d.importe ?? 0)} (${d.motivo ?? ""})`
                         : h.accion === "cancelar" ? `Canceló la venta${d.motivo ? `: ${d.motivo}` : ""}`
                         : h.accion === "pago" ? `Registró un pago de ${mxn(d.importe ?? 0)} (${FORMAS_PAGO[d.forma ?? ""] ?? d.forma})`
                         : h.accion === "insert" || h.accion === "crear" ? "Creó la venta" : h.accion;
@@ -422,6 +468,69 @@ export default function DetalleVenta() {
           </div>
         </div>
       </section>
+      {devolucion && (
+        <Ventana titulo={`Devolver productos de ${folioDe(v)}`} onCerrar={() => setDevolucion(null)}>
+          <p className="text-xs text-[var(--tenue)] mb-2">El material regresa al inventario de la bodega de donde salió. Solo se puede devolver lo ya entregado.</p>
+          <table className="w-full text-sm">
+            <thead style={{ color: "var(--acento)" }}><tr className="text-left border-b border-[var(--borde)]">
+              <th className="font-normal py-1">Producto</th><th className="font-normal text-right">Puede devolver</th><th className="font-normal text-right w-28">Devuelve</th></tr></thead>
+            <tbody>
+              {v.partidas.map((p) => {
+                const r = renglones.find((x) => x.renglon === p.renglon);
+                const max = r ? r.cantidad_entregada - r.cantidad_devuelta : 0;
+                if (!r || max <= 0) return null;
+                return (
+                  <tr key={r.id} className="border-b border-[var(--borde)]">
+                    <td className="py-1.5 pr-2">{nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}</td>
+                    <td className="text-right pr-2 whitespace-nowrap">{fmtCantidad(max)} {p.unidad}</td>
+                    <td className="py-1"><input className="campo !py-1 text-right" inputMode="decimal" placeholder="0" value={devolucion.cantidades[r.id] ?? ""}
+                      onChange={(e) => setDevolucion({ ...devolucion, cantidades: { ...devolucion.cantidades, [r.id]: e.target.value } })} /></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {(() => {
+            const total = v.partidas.reduce((s, p) => {
+              const r = renglones.find((x) => x.renglon === p.renglon);
+              const c = r ? Number(devolucion.cantidades[r.id] || 0) : 0;
+              return s + (c > 0 ? Math.round(Number(p.total) * c / Number(p.cantidad) * 100) / 100 : 0);
+            }, 0);
+            return <div className="text-right mt-2">Importe a devolver: <b>{mxn(total)}</b></div>;
+          })()}
+          <label className="block mt-3">Motivo
+            <select className="campo" value={devolucion.motivo} onChange={(e) => setDevolucion({ ...devolucion, motivo: e.target.value })}>
+              <option value="">— Elige —</option>
+              {["Le sobró material", "Material dañado o defectuoso", "Se equivocó de modelo o tono", "Otro"].map((m) => <option key={m}>{m}</option>)}
+            </select>
+          </label>
+          <label className="block mt-2">Detalle {devolucion.motivo === "Otro" ? "*" : "(opcional)"}
+            <input className="campo" value={devolucion.detalle} onChange={(e) => setDevolucion({ ...devolucion, detalle: e.target.value })} />
+          </label>
+          <div className="mt-3 flex flex-col gap-1">
+            <label className={`flex items-center gap-2 ${v.cliente.es_publico_general ? "opacity-50" : ""}`}>
+              <input type="radio" disabled={v.cliente.es_publico_general} checked={devolucion.destino === "saldo_favor"} onChange={() => setDevolucion({ ...devolucion, destino: "saldo_favor" })} />
+              Dejarlo como saldo a favor del cliente {v.cliente.es_publico_general && <span className="text-xs">(no aplica a Público en general)</span>}
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={devolucion.destino === "dinero"} onChange={() => setDevolucion({ ...devolucion, destino: "dinero" })} /> Devolverle el dinero
+              {devolucion.destino === "dinero" && (
+                <select className="campo !py-1 !w-auto" value={devolucion.forma} onChange={(e) => setDevolucion({ ...devolucion, forma: e.target.value })}>
+                  <option value="efectivo">en efectivo</option><option value="transferencia">por transferencia</option>
+                  <option value="tarjeta_debito">a tarjeta de débito</option><option value="tarjeta_credito">a tarjeta de crédito</option>
+                </select>
+              )}
+            </label>
+          </div>
+          <p className="text-xs text-amber-800 mt-3">Al registrar la devolución la venta queda cerrada y ya no se podrá cancelar.</p>
+          <div className="flex justify-end gap-3 mt-4">
+            <button className="px-4 py-2 rounded border border-[var(--borde)]" onClick={() => setDevolucion(null)}>Cerrar</button>
+            <button className="btn-primario" disabled={trabajando || !devolucion.motivo || !Object.values(devolucion.cantidades).some((c) => Number(c) > 0)}
+              onClick={guardarDevolucion}>{trabajando ? "Guardando…" : "Registrar devolución"}</button>
+          </div>
+        </Ventana>
+      )}
+
       {pago && (
         <Ventana titulo="Registrar pago" onCerrar={() => setPago(null)}>
           <div className="grid gap-3 sm:grid-cols-2">

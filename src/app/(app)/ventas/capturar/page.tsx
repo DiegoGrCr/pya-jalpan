@@ -34,6 +34,8 @@ interface Sucursal { id: string; codigo: string; nombre: string; cp_expedicion: 
 interface Captura {
   clave: string; sucursalId: string; almacenId: string; cliente: Cliente | null; tipo: "contado" | "credito" | "abono"; lineas: Linea[]; pagos: Pago[]; comentarios: string; sinIva?: boolean;
   ordenCompra?: string; descGlobalTipo?: TipoDesc; descGlobalValor?: string;
+  /** El cambio se queda como saldo a favor del cliente (0038) */
+  cambioAFavor?: boolean;
   /** Edición de una venta ya guardada (mismo folio) */
   edicion?: { ventaId: string; folio: string; pagado: string };
   /** Modo cotización: se guarda como cotización (sin pagos); id/folio si se está editando una */
@@ -440,6 +442,7 @@ export default function CapturarVenta() {
         idempotency_key: c.clave, sucursal_id: c.sucursalId, almacen_id: c.almacenId, lista_id: lista?.id,
         cliente_id: c.cliente?.id ?? null, tipo: c.tipo === "abono" ? "contado" : c.tipo, pago_pendiente: c.tipo === "abono", comentarios: c.comentarios || null, sin_iva: sinIva,
         orden_compra: c.ordenCompra?.trim() || null, cotizacion_id: c.desdeCotizacion?.id ?? null,
+        ...(c.cambioAFavor && cambio.gt(0) && c.cliente && !c.cliente.es_publico_general ? { cambio_a_favor: true } : {}),
         partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
           precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora,
           ...(l.almacenId && l.almacenId !== c.almacenId ? { almacen_id: l.almacenId } : {}),
@@ -820,7 +823,13 @@ export default function CapturarVenta() {
               </> : <>
               <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(pagado)}</dd>
               {c.tipo === "contado"
-                ? <><dt>Cambio:</dt><dd className="text-right font-semibold">{fmtImporte(cambio)}</dd></>
+                ? <><dt>Cambio:</dt><dd className="text-right font-semibold">{c.cambioAFavor && cambio.gt(0) ? <s className="text-[var(--tenue)]">{fmtImporte(cambio)}</s> : fmtImporte(cambio)}</dd>
+                  {cambio.gt(0) && c.cliente && !c.cliente.es_publico_general && (
+                    <dd className="col-span-2 text-right text-xs">
+                      <label className="cursor-pointer"><input type="checkbox" checked={!!c.cambioAFavor} onChange={(e) => setC((v) => ({ ...v, cambioAFavor: e.target.checked }))} />{" "}
+                        Dejar el cambio ({fmtImporte(cambio)}) como saldo a favor</label>
+                    </dd>
+                  )}</>
                 : <><dt>{c.tipo === "abono" ? "Saldo pendiente:" : "Saldo a crédito:"}</dt><dd className="text-right font-semibold">{fmtImporte(faltaPagar)}</dd></>}
               </>}
             </dl>

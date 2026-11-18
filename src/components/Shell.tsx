@@ -30,6 +30,7 @@ export const MENU: Grupo[] = [
     { texto: "Cotizaciones", href: "/ventas/cotizaciones" },
     { texto: "Apartados", href: "/ventas/apartados" },
     { texto: "Lista de ventas", href: "/ventas/lista" },
+    { texto: "Devoluciones", href: "/ventas/devoluciones" },
     { texto: "Capturar venta", href: "/ventas/capturar" },
     { texto: "Punto de venta", href: "/pos" },
   ] },
