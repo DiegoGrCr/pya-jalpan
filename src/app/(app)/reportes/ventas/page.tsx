@@ -273,7 +273,7 @@ export default function ReporteVentas() {
                 {AGRUPAR.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
               </select>
             </label>
-            <div className="flex gap-2 lg:col-span-2 justify-end">
+            <div className="col-span-full flex gap-3 justify-end items-center border-t border-[var(--borde)] pt-3">
               <button className="px-3 py-2 underline" onClick={() => { setF(FILTROS_VACIOS); setAgrupar(""); }}>Limpiar</button>
               <button className="btn-primario" disabled={cargando} onClick={buscar}>{cargando ? "Buscando…" : "Buscar"}</button>
             </div>
