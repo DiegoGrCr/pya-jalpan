@@ -60,19 +60,20 @@ export default function Sucursales() {
   useEffect(() => { cargar(); }, [cargar]);
 
   // Folio de remisiones: abreviación de la sucursal y número con el que sigue (p. ej. AR 1)
-  const [folioPara, setFolioPara] = useState<string | null>(null);
+  type TipoFolio = "venta" | "cotizacion";
+  const [folioPara, setFolioPara] = useState<{ sucursal: string; tipo: TipoFolio } | null>(null);
   const [folio, setFolio] = useState({ prefijo: "", siguiente: "1" });
-  const serieVenta = (s: Sucursal) => s.series?.find((x) => x.tipo_documento === "venta" && x.activa);
-  const guardarFolio = async (s: Sucursal) => {
+  const serieDe = (s: Sucursal, tipo: TipoFolio) => s.series?.find((x) => x.tipo_documento === tipo && x.activa);
+  const guardarFolio = async (s: Sucursal, tipo: TipoFolio) => {
     setGuardando(true); setMsg(null);
     try {
-      const { error } = await supabase().rpc("guardar_serie", { p: { sucursal_id: s.id, tipo_documento: "venta", prefijo: folio.prefijo, siguiente: Number(folio.siguiente) } });
+      const { error } = await supabase().rpc("guardar_serie", { p: { sucursal_id: s.id, tipo_documento: tipo, prefijo: folio.prefijo, siguiente: Number(folio.siguiente) } });
       if (error) {
         if (/guardar_serie/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000028_folio_y_almacen_por_renglon.sql en Supabase.");
         throw error;
       }
       setFolioPara(null);
-      setMsg({ tipo: "ok", texto: `${s.nombre}: la próxima remisión será ${folio.prefijo.toUpperCase()} ${folio.siguiente}.` });
+      setMsg({ tipo: "ok", texto: `${s.nombre}: la próxima ${tipo === "venta" ? "remisión" : "cotización"} será ${folio.prefijo.toUpperCase()} ${folio.siguiente}.` });
       await cargar();
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setGuardando(false); }
   };
@@ -181,7 +182,7 @@ export default function Sucursales() {
       <div className="overflow-x-auto rounded-lg border bg-[var(--panel)]">
         <table className="w-full text-sm">
           <thead className="text-left opacity-80">
-            <tr><th className="p-2">Código</th><th>Nombre</th><th>CP expedición</th><th>Folio de remisiones</th><th>Almacenes</th><th>Usuarios</th><th>Estado</th><th></th></tr>
+            <tr><th className="p-2">Código</th><th>Nombre</th><th>CP expedición</th><th>Folios</th><th>Almacenes</th><th>Usuarios</th><th>Estado</th><th></th></tr>
           </thead>
           <tbody>
             {lista.map((s) => (
@@ -190,31 +191,36 @@ export default function Sucursales() {
                 <td className="py-2">{s.nombre}</td>
                 <td className="py-2">{s.cp_expedicion ?? "—"}</td>
                 <td className="py-2">
-                  {folioPara === s.id ? (
-                    <div className="flex flex-col gap-1 max-w-[220px]">
-                      <label className="text-xs">Abreviación
-                        <input className="border rounded px-2 py-1 w-full uppercase" maxLength={6} placeholder="p. ej. AR" value={folio.prefijo}
-                          onChange={(e) => setFolio({ ...folio, prefijo: e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase() })} />
-                      </label>
-                      <label className="text-xs">Siguiente número
-                        <input className="border rounded px-2 py-1 w-full" inputMode="numeric" value={folio.siguiente}
-                          onChange={(e) => setFolio({ ...folio, siguiente: e.target.value.replace(/\D/g, "") })} />
-                      </label>
-                      <div className="flex gap-3 text-xs">
-                        <button disabled={guardando || !folio.prefijo || !Number(folio.siguiente)} onClick={() => guardarFolio(s)} className="underline font-semibold">Guardar</button>
-                        <button onClick={() => setFolioPara(null)} className="underline">Cancelar</button>
+                  {(["venta", "cotizacion"] as const).map((tipo) => {
+                    const sv = serieDe(s, tipo);
+                    if (folioPara?.sucursal === s.id && folioPara.tipo === tipo) return (
+                      <div key={tipo} className="flex flex-col gap-1 max-w-[220px] mb-2">
+                        <div className="text-xs font-semibold">{tipo === "venta" ? "Remisiones" : "Cotizaciones"}</div>
+                        <label className="text-xs">Abreviación
+                          <input className="border rounded px-2 py-1 w-full uppercase" maxLength={6} placeholder={tipo === "venta" ? "p. ej. AR" : "p. ej. ARC"} value={folio.prefijo}
+                            onChange={(e) => setFolio({ ...folio, prefijo: e.target.value.replace(/[^A-Za-z0-9]/g, "").toUpperCase() })} />
+                        </label>
+                        <label className="text-xs">Siguiente número
+                          <input className="border rounded px-2 py-1 w-full" inputMode="numeric" value={folio.siguiente}
+                            onChange={(e) => setFolio({ ...folio, siguiente: e.target.value.replace(/\D/g, "") })} />
+                        </label>
+                        <div className="flex gap-3 text-xs">
+                          <button disabled={guardando || !folio.prefijo || !Number(folio.siguiente)} onClick={() => guardarFolio(s, tipo)} className="underline font-semibold">Guardar</button>
+                          <button onClick={() => setFolioPara(null)} className="underline">Cancelar</button>
+                        </div>
                       </div>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="font-mono">{serieVenta(s) ? `${serieVenta(s)!.prefijo} ${serieVenta(s)!.siguiente}` : "—"}</div>
-                      <div className="text-xs opacity-60">próxima remisión</div>
-                      {(!serieVenta(s) || /^\d+V$/.test(serieVenta(s)!.prefijo)) && (
-                        <div className="text-xs text-amber-700">Serie automática: pon la abreviación de la sucursal</div>
-                      )}
-                      {admin && <button className="text-xs underline" onClick={() => { const sv = serieVenta(s); setFolioPara(s.id); setFolio({ prefijo: sv?.prefijo ?? "", siguiente: "1" }); }}>Cambiar</button>}
-                    </>
-                  )}
+                    );
+                    return (
+                      <div key={tipo} className="mb-2">
+                        <div className="font-mono">{sv ? `${sv.prefijo} ${sv.siguiente}` : "—"}</div>
+                        <div className="text-xs opacity-60">próxima {tipo === "venta" ? "remisión" : "cotización"}</div>
+                        {(!sv || /^\d+[VC]$/.test(sv.prefijo)) && (
+                          <div className="text-xs text-amber-700">Serie automática: pon la abreviación</div>
+                        )}
+                        {admin && <button className="text-xs underline" onClick={() => { setFolioPara({ sucursal: s.id, tipo }); setFolio({ prefijo: sv?.prefijo ?? "", siguiente: "1" }); }}>Cambiar</button>}
+                      </div>
+                    );
+                  })}
                 </td>
                 <td className="py-2">
                   {[...s.almacenes].sort((a, b) => Number(b.activo) - Number(a.activo) || a.nombre.localeCompare(b.nombre)).map((a) => {

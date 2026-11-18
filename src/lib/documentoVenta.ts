@@ -36,6 +36,8 @@ export interface VentaDoc {
   subtotal: string; descuento: string; ieps: string; iva: string; total: string; pagado: string; saldo: string; cambio: string;
   vencimiento: string | null; comentarios: string | null; motivo_cancelacion: string | null; factura_uuid: string | null;
   orden_compra?: string | null;
+  /** Cotización: se imprime con su título, vigencia y sin pagos ni firma de recibido */
+  esCotizacion?: boolean; vigencia?: string | null;
   /** Nombre de quien capturó la venta (0022) */
   capturo?: string | null;
   sucursal: { codigo: string; nombre: string; cp_expedicion: string | null; direccion: string | null; telefono: string | null; lugar_expedicion: string | null };
@@ -56,12 +58,13 @@ export const folioDe = (v: Pick<VentaDoc, "serie" | "folio">) => `${v.serie} ${v
  * "Remision_<RFC empresa>_<serie+folio>_<RFC cliente>" (p. ej. Remision_XAXX010101000_AR14_XAXX010101000).
  * Las partes que falten se omiten; solo letras, números y guion bajo.
  */
-export const archivoDe = (v: Pick<VentaDoc, "serie" | "folio"> & { empresa?: { rfc: string | null }; cliente?: { rfc: string | null } }) =>
+export const archivoDe = (v: Pick<VentaDoc, "serie" | "folio"> & { empresa?: { rfc: string | null }; cliente?: { rfc: string | null }; esCotizacion?: boolean }) =>
+  v.esCotizacion ? `Cotizacion-${v.serie}${v.folio}`.replace(/[^A-Za-z0-9-]/g, "") :
   ["Remision", v.empresa?.rfc, `${v.serie}${v.folio}`, v.cliente?.rfc]
     .filter((x): x is string => !!x && !!String(x).trim())
     .map((x) => String(x).normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^A-Za-z0-9&-]/g, ""))
     .join("_");
-export const tituloDe = (v: VentaDoc) => `${v.empresa.remision_titulo || "Remisión"} ${folioDe(v)}`;
+export const tituloDe = (v: VentaDoc) => `${v.esCotizacion ? "Cotización" : v.empresa.remision_titulo || "Remisión"} ${folioDe(v)}`;
 export const emisorDe = (v: VentaDoc) => v.empresa.nombre_emisor || v.empresa.razon_social || v.sucursal.nombre;
 export const fechaMx = (iso: string) =>
   new Date(iso).toLocaleString("es-MX", { timeZone: "America/Mexico_City", dateStyle: "short", timeStyle: "short" });
@@ -238,7 +241,7 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
 
   const datos: [string, string][] = [
     ["Fecha de creación:", fechaCorta(v.fecha)],
-    ["Fecha de Vencimiento:", fechaCorta(v.vencimiento ?? v.fecha)],
+    v.esCotizacion ? ["Vigencia:", fechaCorta(v.vigencia ?? v.fecha)] : ["Fecha de Vencimiento:", fechaCorta(v.vencimiento ?? v.fecha)],
     ["Sucursal:", `${v.sucursal.codigo} - ${v.sucursal.nombre}`],
     ["Almacén:", v.almacen],
   ];
@@ -324,7 +327,7 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
     doc.setFontSize(6.3);
     for (const l of doc.splitTextToSize(v.empresa.condiciones_venta, W - 2 * M - 2) as string[]) { y = nuevaPaginaSi(y, 2.6); doc.text(l, M + 1, y); y += 2.6; }
   }
-  if (v.empresa.remision_firma) {
+  if (v.empresa.remision_firma && !v.esCotizacion) {
     y = nuevaPaginaSi(y, 20);
     doc.setFontSize(6.3).text(fechaLarga(v.fecha), M + 1, y);
     y += 13;
@@ -412,11 +415,12 @@ function pdfTicket(JsPDF: typeof import("jspdf").jsPDF, v: VentaDoc, ancho: 58 |
     fila(imp.etiquetaIva, n2(imp.iva));
     fila("TOTAL", n2(imp.total), true);
     for (const p of v.pagos) fila(FORMAS_PAGO[p.forma] ?? p.forma, n2(p.importe));
+    if (v.esCotizacion && v.vigencia) centro(`Vigencia: ${fechaCorta(v.vigencia)}`);
     if (Number(v.cambio)) fila("Cambio", n2(v.cambio), true);
     if (v.tipo === "credito") fila("Saldo a crédito", n2(v.saldo), true);
     y += 1; centro(importeConLetra(v.total), false, fs - 1);
     if (v.comentarios) { y += 1; centro(v.comentarios); }
-    y += 2; centro("Gracias por su compra"); centro("Este ticket no es un comprobante fiscal.", false, fs - 1);
+    y += 2; centro(v.esCotizacion ? "Precios sujetos a cambio después de la vigencia" : "Gracias por su compra"); centro("Este ticket no es un comprobante fiscal.", false, fs - 1);
     return y + 4;
   };
   const alto = render(new JsPDF({ unit: "mm", orientation: "portrait", format: [W, 1000] }));
@@ -424,4 +428,50 @@ function pdfTicket(JsPDF: typeof import("jspdf").jsPDF, v: VentaDoc, ancho: 58 |
   const doc = new JsPDF({ unit: "mm", orientation: "portrait", format: [W, Math.max(alto, W + 20)] });
   render(doc);
   return doc.output("blob");
+}
+
+
+// ---------------------------------------------------------------------------
+// Cotizaciones: mismo documento que la remisión (encabezado, productos y totales)
+// ---------------------------------------------------------------------------
+export interface CotizacionDoc extends VentaDoc { estadoCotizacion: "borrador" | "enviada" | "convertida" | "cancelada"; ventaId: string | null }
+
+/** Carga una cotización con la forma de VentaDoc para reutilizar el PDF, el ticket y la imagen. */
+export async function cargarCotizacion(id: string): Promise<CotizacionDoc | null> {
+  const sb = supabase();
+  const [r, empresa] = await Promise.all([
+    sb.from("cotizaciones").select(`id, serie, folio, fecha, vigencia, estado, subtotal, descuento, ieps, iva, total, comentarios, venta_id, prospecto, vendedor_id,
+      motivo_cancelacion, sucursales(codigo, nombre, cp_expedicion, direccion, telefono, lugar_expedicion), almacenes(nombre),
+      clientes(nombre, razon_social, rfc, correo_facturas, telefono, es_publico_general),
+      cotizacion_partidas(renglon, unidad_nombre, factor, cantidad, cantidad_base, precio_unitario, descuento, total, iva_tasa, ieps_tasa, comentario,
+        productos(${PROD}))`).eq("id", id).maybeSingle(),
+    cargarEmpresa(),
+  ]);
+  if (r.error) throw r.error;
+  if (!r.data) return null;
+  type Fila = { id: string; serie: string; folio: number; fecha: string; vigencia: string; estado: CotizacionDoc["estadoCotizacion"];
+    subtotal: string; descuento: string; ieps: string; iva: string; total: string; comentarios: string | null; venta_id: string | null;
+    prospecto: string | null; vendedor_id: string | null; motivo_cancelacion: string | null;
+    sucursales: VentaDoc["sucursal"]; almacenes: { nombre: string } | null; clientes: VentaDoc["cliente"] | null;
+    cotizacion_partidas: { renglon: number; unidad_nombre: string; factor: string; cantidad: string; cantidad_base: string; precio_unitario: string;
+      descuento: string; total: string; iva_tasa: string; ieps_tasa: string; comentario: string | null;
+      productos: { sku: string; nombre: string; unidad_base: string; m2_por_caja?: string | null; piezas_por_caja?: number | null; formato?: string | null } }[] };
+  const c = r.data as unknown as Fila;
+  const capturo = c.vendedor_id ? (await nombresUsuarios([c.vendedor_id]))[c.vendedor_id] ?? null : null;
+  return {
+    id: c.id, serie: c.serie, folio: c.folio, fecha: c.fecha, tipo: "contado", estado: c.estado === "cancelada" ? "cancelada" : "confirmada",
+    subtotal: c.subtotal, descuento: c.descuento, ieps: c.ieps, iva: c.iva, total: c.total, pagado: "0", saldo: "0", cambio: "0",
+    vencimiento: c.vigencia, vigencia: c.vigencia, comentarios: c.comentarios, motivo_cancelacion: c.motivo_cancelacion, factura_uuid: null,
+    esCotizacion: true, estadoCotizacion: c.estado, ventaId: c.venta_id, capturo,
+    sucursal: c.sucursales, almacen: c.almacenes?.nombre ?? "",
+    cliente: c.clientes ?? { nombre: c.prospecto ?? "Público en general", razon_social: null, rfc: null, correo_facturas: null, telefono: null, es_publico_general: !c.prospecto },
+    empresa,
+    partidas: [...c.cotizacion_partidas].sort((a, b) => a.renglon - b.renglon).map(({ productos, unidad_nombre, ...p }) => ({
+      ...p, sku: productos.sku, nombre: productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
+      cantidad_entregada: "0", vendida_sin_existencia: false,
+      m2_por_pieza: productos.m2_por_caja && productos.piezas_por_caja ? Number(productos.m2_por_caja) / productos.piezas_por_caja : null,
+      m2_por_caja: productos.m2_por_caja ?? null, formato: productos.formato ?? null,
+    })),
+    pagos: [],
+  };
 }

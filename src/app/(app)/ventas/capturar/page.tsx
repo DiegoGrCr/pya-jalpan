@@ -36,6 +36,10 @@ interface Captura {
   ordenCompra?: string; descGlobalTipo?: TipoDesc; descGlobalValor?: string;
   /** Edición de una venta ya guardada (mismo folio) */
   edicion?: { ventaId: string; folio: string; pagado: string };
+  /** Modo cotización: se guarda como cotización (sin pagos); id/folio si se está editando una */
+  cotizacion?: { id?: string; folio?: string; vigencia: string; prospecto?: string };
+  /** Venta que sale de una cotización (respeta sus precios y la marca como convertida) */
+  desdeCotizacion?: { id: string; folio: string };
 }
 interface DetalleProducto { producto: ProductoVenta; filas: { almacen: string; cantidad: number; apartado: number }[] | null }
 const CLIENTE_COLS = "id, nombre, rfc, es_publico_general, lista_precios_id, limite_credito, dias_credito";
@@ -47,6 +51,8 @@ interface FilaUnidad { id: string; nombre: string; factor: string; es_base: bool
 interface FilaProducto extends Omit<ProductoVenta, "unidades"> { unidades_venta: FilaUnidad[] }
 
 const CLAVE_LOCAL = "captura-venta-v1";
+/** Fecha (AAAA-MM-DD, hora de México) dentro de n días */
+const masDias = (n: number) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" }); };
 const pagoInicial = (): Pago[] => [{ forma: "efectivo", importe: "", referencia: "" }];
 const capturaNueva = (sucursalId = "", almacenId = "", cliente: Cliente | null = null): Captura =>
   ({ clave: crypto.randomUUID(), sucursalId, almacenId, cliente, tipo: "contado", lineas: [], pagos: pagoInicial(), comentarios: "", sinIva: true });
@@ -98,11 +104,18 @@ export default function CapturarVenta() {
         if (lp.data) setLista({ id: lp.data.id, incluye: lp.data.incluye_impuestos });
         if (!sucs.length) setMsg({ tipo: "error", texto: "Tu usuario no tiene sucursales asignadas." });
 
-        const editarId = new URLSearchParams(window.location.search).get("editar");
+        const qs = new URLSearchParams(window.location.search);
+        const editarId = qs.get("editar");
         if (editarId) { await cargarEdicion(editarId, lp.data?.id ?? null); return; }
+        // Cotizaciones: nueva (?cotizar=1), editar (?cotizacion=id) o vender desde una (?desde_cotizacion=id)
+        const s0c = sucs[0]?.id ?? "", a0c = sucs[0]?.almacen_predeterminado_id ?? ((alm.data ?? []) as Almacen[]).find((a) => a.sucursal_id === s0c)?.id ?? "";
+        if (qs.get("cotizar")) { setC({ ...capturaNueva(s0c, a0c, pub.data as Cliente), cotizacion: { vigencia: masDias(15) } }); return; }
+        const cotId = qs.get("cotizacion") || qs.get("desde_cotizacion") || qs.get("copiar_cotizacion");
+        const modoCot = qs.get("desde_cotizacion") ? "vender" : qs.get("copiar_cotizacion") ? "copiar" : "editar";
+        if (cotId) { await cargarCotizacionCaptura(cotId, lp.data?.id ?? null, modoCot, pub.data as Cliente); return; }
         let guardada: Captura | null = null;
         try { const s = localStorage.getItem(CLAVE_LOCAL); if (s) guardada = JSON.parse(s); } catch { /* sin almacenamiento */ }
-        if (guardada?.edicion) guardada = null;
+        if (guardada?.edicion || guardada?.cotizacion || guardada?.desdeCotizacion) guardada = null;
         if (guardada && guardada.lineas.length) setC(guardada);
         else {
           const s0 = sucs[0]?.id ?? "";
@@ -114,7 +127,40 @@ export default function CapturarVenta() {
   }, []);
 
   // La captura se conserva en este equipo hasta guardarla (por si se va la conexión); la edición no
-  useEffect(() => { if (c.edicion) return; try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(c)); } catch { /* ignorar */ } }, [c]);
+  useEffect(() => { if (c.edicion || c.cotizacion || c.desdeCotizacion) return; try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(c)); } catch { /* ignorar */ } }, [c]);
+
+  /** Carga una cotización para editarla, o para venderla (desde=true) con sus precios. */
+  async function cargarCotizacionCaptura(id: string, listaId: string | null, modo: "editar" | "vender" | "copiar", publicoGeneral: Cliente) {
+    const { data, error } = await supabase().from("cotizaciones").select(`id, serie, folio, sucursal_id, almacen_id, vigencia, estado, comentarios, sin_iva, prospecto,
+      clientes(${CLIENTE_COLS}),
+      cotizacion_partidas(renglon, unidad_venta_id, cantidad, precio_unitario, descuento, comentario,
+        productos(id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, presentacion, m2_por_caja, piezas_por_caja, formato,
+          unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))))`).eq("id", id).maybeSingle();
+    if (error) {
+      if (/sin_iva|comentario/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000037_cotizaciones.sql en Supabase.");
+      throw error;
+    }
+    if (!data) throw new Error("No se encontró la cotización o no tienes acceso a su sucursal.");
+    const q = data as unknown as { id: string; serie: string; folio: number; sucursal_id: string; almacen_id: string; vigencia: string; estado: string;
+      comentarios: string | null; sin_iva: boolean; prospecto: string | null; clientes: Cliente | null;
+      cotizacion_partidas: { renglon: number; unidad_venta_id: string; cantidad: string; precio_unitario: string; descuento: string; comentario: string | null; productos: FilaProducto }[] };
+    if (modo !== "copiar" && q.estado === "convertida") throw new Error("Esta cotización ya se convirtió en venta.");
+    if (modo !== "copiar" && q.estado === "cancelada") throw new Error("Esta cotización está cancelada.");
+    const lineas: Linea[] = [...q.cotizacion_partidas].sort((a, b) => a.renglon - b.renglon).map((cp) => {
+      const { unidades_venta, ...prod } = cp.productos;
+      const producto: ProductoVenta = { ...prod, unidades: [...unidades_venta].sort((a, b) => a.orden - b.orden)
+        .map((u) => ({ ...u, precio: u.precios?.find((x) => x.lista_id === listaId)?.precio ?? null })) };
+      return { uid: crypto.randomUUID(), producto, unidadId: cp.unidad_venta_id, cantidad: String(Number(cp.cantidad)), precio: String(Number(cp.precio_unitario)),
+        descuento: "0", entregarAhora: true, comentario: cp.comentario ?? "",
+        descTipo: "$", descValor: Number(cp.descuento) > 0 ? String(Number(cp.descuento)) : "", verDesc: Number(cp.descuento) > 0 };
+    });
+    const folio = `${q.serie} ${q.folio}`;
+    setC({ ...capturaNueva(q.sucursal_id, q.almacen_id, q.clientes ?? publicoGeneral), lineas, comentarios: q.comentarios ?? "", sinIva: q.sin_iva !== false,
+      ...(modo === "vender" ? { desdeCotizacion: { id: q.id, folio } }
+        : modo === "copiar" ? { cotizacion: { vigencia: masDias(15), prospecto: q.prospecto ?? "" } }
+        : { cotizacion: { id: q.id, folio, vigencia: q.vigencia, prospecto: q.prospecto ?? "" } }) });
+    cargarExistencias([...new Set(lineas.map((l) => l.producto.id))], q.almacen_id);
+  }
 
   /** Carga una venta guardada para editarla en esta misma pantalla. */
   async function cargarEdicion(id: string, listaId: string | null) {
@@ -319,7 +365,8 @@ export default function CapturarVenta() {
   if (c.lineas.some((l) => Number(l.precio) <= 0)) motivos.push("Hay partidas con precio en 0.");
   c.lineas.forEach((l, i) => { if (descuentos.propios[i].gt(descuentos.brutos[i])) motivos.push(`${l.producto.nombre}: el descuento es mayor al importe.`); });
   c.lineas.forEach((l) => { if (l.entregada && dec(l.cantidad).lt(dec(l.entregada))) motivos.push(`${l.producto.nombre}: no puedes dejar menos de lo ya entregado (${fmtCantidad(l.entregada)}).`); });
-  if (!c.edicion) {
+  if (c.cotizacion && !c.cotizacion.vigencia) motivos.push("Indica la vigencia de la cotización.");
+  if (!c.edicion && !c.cotizacion) {
     if (c.tipo === "credito" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("La venta a crédito requiere un cliente registrado.");
     if (c.tipo === "abono" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("Para dejar saldo pendiente elige o da de alta al cliente (+ Nuevo).");
     if (c.tipo === "abono" && pagado.gt(total)) motivos.push("El abono es mayor al total de la venta.");
@@ -359,15 +406,40 @@ export default function CapturarVenta() {
     } finally { setGuardando(false); }
   };
 
+  const guardarCotizacion = async () => {
+    if (!c.cotizacion || !puedeGuardar) return;
+    setGuardando(true); setMsg(null);
+    try {
+      const publicoSel = !c.cliente || c.cliente.es_publico_general;
+      const { data, error } = await supabase().rpc("guardar_cotizacion", { p: {
+        id: c.cotizacion.id ?? null, idempotency_key: c.clave, sucursal_id: c.sucursalId, almacen_id: c.almacenId, lista_id: lista?.id,
+        cliente_id: publicoSel ? null : c.cliente!.id, prospecto: publicoSel ? (c.cotizacion.prospecto?.trim() || null) : null,
+        vigencia: c.cotizacion.vigencia, comentarios: c.comentarios || null, sin_iva: sinIva,
+        partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad, precio_unitario: l.precio,
+          descuento: descuentos.porRenglon[i].toFixed(2), comentario: l.comentario?.trim() || null })),
+      } });
+      if (error) {
+        if (/sin_iva|comentario|guardar_cotizacion/.test(error.message) && /column|columna|function|función/i.test(error.message))
+          throw new Error("Falta ejecutar la migración 20261118000037_cotizaciones.sql en Supabase.");
+        throw error;
+      }
+      router.push(`/ventas/cotizaciones/${data.cotizacion_id}?guardada=1`);
+    } catch (e) {
+      setMsg({ tipo: "error", texto: mensajeError(e) });
+      setC((v) => ({ ...v, clave: crypto.randomUUID() }));
+    } finally { setGuardando(false); }
+  };
+
   const guardar = async () => {
     if (c.edicion) return guardarEdicion();
+    if (c.cotizacion) return guardarCotizacion();
     if (!puedeGuardar) return;
     setGuardando(true); setMsg(null);
     try {
       const { data, error } = await supabase().rpc("confirmar_venta", { p: {
         idempotency_key: c.clave, sucursal_id: c.sucursalId, almacen_id: c.almacenId, lista_id: lista?.id,
         cliente_id: c.cliente?.id ?? null, tipo: c.tipo === "abono" ? "contado" : c.tipo, pago_pendiente: c.tipo === "abono", comentarios: c.comentarios || null, sin_iva: sinIva,
-        orden_compra: c.ordenCompra?.trim() || null,
+        orden_compra: c.ordenCompra?.trim() || null, cotizacion_id: c.desdeCotizacion?.id ?? null,
         partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
           precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora,
           ...(l.almacenId && l.almacenId !== c.almacenId ? { almacen_id: l.almacenId } : {}),
@@ -413,6 +485,16 @@ export default function CapturarVenta() {
         </div>
       )}
 
+      {c.cotizacion && (
+        <div className="mb-3 rounded px-4 py-2 bg-violet-50 text-violet-900 border border-violet-200 text-sm">
+          {c.cotizacion.id ? <>Editando la cotización <b>{c.cotizacion.folio}</b>.</> : <><b>Nueva cotización.</b></>} No mueve inventario ni lleva pagos; después se puede convertir en venta.
+        </div>
+      )}
+      {c.desdeCotizacion && (
+        <div className="mb-3 rounded px-4 py-2 bg-sky-50 text-sky-900 border border-sky-200 text-sm">
+          Venta desde la cotización <b>{c.desdeCotizacion.folio}</b>: se respetan sus precios y al guardar la cotización queda como convertida.
+        </div>
+      )}
       {c.edicion && (
         <div className="mb-3 rounded px-4 py-2 bg-sky-50 text-sky-900 border border-sky-200 text-sm">
           Editando la venta <b>{c.edicion.folio}</b>. Al guardar se conserva el folio y el inventario se ajusta por la diferencia.
@@ -506,6 +588,16 @@ export default function CapturarVenta() {
               {almacenesSucursal.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
           </label>
+          {c.cotizacion ? <>
+          <label>Vigencia:
+            <input type="date" className="campo" value={c.cotizacion.vigencia} onChange={(e) => setC((v) => ({ ...v, cotizacion: { ...v.cotizacion!, vigencia: e.target.value } }))} />
+          </label>
+          <label>A nombre de (opcional):
+            <input className="campo" placeholder={c.cliente && !c.cliente.es_publico_general ? "Se usa el cliente elegido" : "Nombre del interesado"}
+              disabled={!!c.cliente && !c.cliente.es_publico_general} value={c.cotizacion.prospecto ?? ""}
+              onChange={(e) => setC((v) => ({ ...v, cotizacion: { ...v.cotizacion!, prospecto: e.target.value } }))} />
+          </label>
+          </> : <>
           <label>Tipo de venta:
             <select className="campo" value={c.tipo} disabled={!!c.edicion} onChange={(e) => setC((v) => ({ ...v, tipo: e.target.value as Captura["tipo"] }))}>
               {(["contado", "abono", "credito"] as const).map((k) => <option key={k} value={k}>{TIPO_VENTA[k].largo}</option>)}
@@ -517,6 +609,7 @@ export default function CapturarVenta() {
           <label>Orden de compra:
             <input className="campo" value={c.ordenCompra ?? ""} onChange={(e) => setC((v) => ({ ...v, ordenCompra: e.target.value }))} />
           </label>
+          </>}
         </div>
 
         {/* Partidas */}
@@ -551,7 +644,7 @@ export default function CapturarVenta() {
                       }}>
                         {l.producto.unidades.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
                       </select>
-                      {l.producto.tipo === "producto" && (
+                      {l.producto.tipo === "producto" && !c.cotizacion && (
                         <label className="block mt-1 text-xs text-[var(--tenue)]" title="Bodega de donde sale este producto">Sale de
                           <select className={`campo !py-0.5 text-xs ${almL !== c.almacenId ? "!border-[var(--acento)] font-semibold" : ""}`} value={almL}
                             disabled={Number(l.entregada) > 0}
@@ -620,9 +713,9 @@ export default function CapturarVenta() {
                           {/* globo de comentario */}
                           <path d="M4 5h16v11H9l-5 4V5Z" />
                         </BotonIcono>
-                        <label title="Se entrega ahora (desmarca si se entrega después)" className="flex items-center gap-1 text-xs mx-1 cursor-pointer">
+                        {!c.cotizacion && <label title="Se entrega ahora (desmarca si se entrega después)" className="flex items-center gap-1 text-xs mx-1 cursor-pointer">
                           <input type="checkbox" checked={l.entregarAhora} onChange={(e) => editar(l.uid, { entregarAhora: e.target.checked })} /> Ent.
-                        </label>
+                        </label>}
                         <button aria-label="Quitar partida" title={Number(l.entregada) > 0 ? "No se puede quitar: ya se entregó material" : "Quitar partida"}
                           disabled={Number(l.entregada) > 0} className="w-7 h-7 rounded-full text-white flex items-center justify-center disabled:opacity-40"
                           style={{ background: "var(--peligro)" }} onClick={() => setC((v) => ({ ...v, lineas: v.lineas.filter((x) => x.uid !== l.uid) }))}>
@@ -665,7 +758,7 @@ export default function CapturarVenta() {
         </div>
 
         {/* Pagos y totales */}
-        <div className="barra-seccion mt-6">Pagos</div>
+        <div className="barra-seccion mt-6">{c.cotizacion ? "Comentarios y totales" : "Pagos"}</div>
         <div className="grid gap-6 lg:grid-cols-[1fr_280px] mt-3">
           <div className="flex flex-col gap-3 text-sm">
             {c.edicion && (
@@ -674,12 +767,12 @@ export default function CapturarVenta() {
                 Si baja de lo pagado, al guardar se pregunta si se devuelve o queda a favor.
               </div>
             )}
-            {!c.edicion && saldoFavor > 0 && (
+            {!c.edicion && !c.cotizacion && saldoFavor > 0 && (
               <div className="rounded px-3 py-2 bg-emerald-50 text-emerald-900">
                 El cliente tiene <b>{fmtImporte(saldoFavor)}</b> de saldo a favor. Úsalo eligiendo la forma de pago “Saldo a favor”.
               </div>
             )}
-            {!c.edicion && c.pagos.map((p, i) => (
+            {!c.edicion && !c.cotizacion && c.pagos.map((p, i) => (
               <div key={i} className="grid grid-cols-[1fr_120px] sm:grid-cols-[180px_140px_1fr_auto] gap-2 items-center">
                 <select className="campo" value={p.forma} onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, forma: e.target.value as Forma } : x)) }))}>
                   {Object.entries(FORMAS).filter(([k]) => k !== "saldo_favor" || saldoFavor > 0 || p.forma === k).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
@@ -693,7 +786,7 @@ export default function CapturarVenta() {
                 )}
               </div>
             ))}
-            {!c.edicion && <div className="flex gap-4">
+            {!c.edicion && !c.cotizacion && <div className="flex gap-4">
               <button className="underline" onClick={() => setC((v) => ({ ...v, pagos: [...v.pagos, { forma: "tarjeta_debito", importe: faltaPagar.gt(0) ? faltaPagar.toFixed(2) : "", referencia: "" }] }))}>+ Agregar forma de pago</button>
               <button className="underline" onClick={() => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === 0 ? { ...x, importe: total.toFixed(2) } : x)) }))}>Pagar el total</button>
             </div>}
@@ -719,7 +812,7 @@ export default function CapturarVenta() {
                 </label>
               </dt><dd className="text-right">{fmtImporte(iva)}</dd>
               <dt className="font-semibold text-base">Total (MXN):</dt><dd className="text-right font-semibold text-base">{fmtImporte(total)}</dd>
-              {c.edicion ? <>
+              {c.cotizacion ? null : c.edicion ? <>
                 <dt className="mt-2">Ya pagado:</dt><dd className="text-right mt-2">{fmtImporte(pagadoPrevio)}</dd>
                 {total.gte(pagadoPrevio)
                   ? <><dt>Saldo pendiente:</dt><dd className="text-right font-semibold">{fmtImporte(total.minus(pagadoPrevio))}</dd></>
@@ -732,10 +825,12 @@ export default function CapturarVenta() {
               </>}
             </dl>
             <div className="flex justify-end gap-2 mt-4">
-              {c.edicion
+              {c.cotizacion?.id
+                ? <button className="px-3 py-2 underline" onClick={() => router.push(`/ventas/cotizaciones/${c.cotizacion!.id}`)}>Cancelar edición</button>
+                : c.edicion
                 ? <button className="px-3 py-2 underline" onClick={() => router.push(`/ventas/${c.edicion!.ventaId}`)}>Cancelar edición</button>
                 : <button className="px-3 py-2 underline" onClick={() => { if (window.confirm("¿Descartar esta captura?")) setC(capturaNueva(c.sucursalId, c.almacenId, publico)); }}>Descartar</button>}
-              <button className="btn-primario" title="F9" disabled={!puedeGuardar} onClick={guardar}>{guardando ? "Guardando…" : c.edicion ? "Guardar cambios" : "Guardar"}</button>
+              <button className="btn-primario" title="F9" disabled={!puedeGuardar} onClick={guardar}>{guardando ? "Guardando…" : c.cotizacion ? (c.cotizacion.id ? "Guardar cambios" : "Guardar cotización") : c.edicion ? "Guardar cambios" : "Guardar"}</button>
             </div>
             {motivos.length > 0 && !guardando && (
               <ul className="text-xs text-[var(--peligro)] mt-2 text-right">
