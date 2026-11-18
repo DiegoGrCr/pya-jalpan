@@ -69,6 +69,7 @@ export default function CapturarVenta() {
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string; avisos?: string[] } | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [saldoFavor, setSaldoFavor] = useState(0);
+  const [cambiarCliente, setCambiarCliente] = useState(false);
   const [diferencia, setDiferencia] = useState<{ exceso: Decimal; opcion: "devolver" | "saldo_favor"; forma: Forma } | null>(null);
   const busRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
@@ -241,7 +242,7 @@ export default function CapturarVenta() {
       .select(CLIENTE_COLS).single();
     if (error) { setMsg({ tipo: "error", texto: mensajeError(error) }); return; }
     setC((v) => ({ ...v, cliente: data as Cliente }));
-    setNuevoCliente(null); setMsg(null);
+    setNuevoCliente(null); setMsg(null); setCambiarCliente(false);
   };
 
   // ---------- descuentos ----------
@@ -423,14 +424,34 @@ export default function CapturarVenta() {
             </div>
           </div>
           <div className="relative w-full md:w-80 shrink-0">
-            <div className="flex gap-2 items-center">
-              <input className="campo text-center" style={{ borderColor: "var(--peligro)", borderStyle: "dashed" }} placeholder="Buscar cliente" value={textoCliente} disabled={!!c.edicion}
-                onChange={(e) => setTextoCliente(e.target.value)} />
-              {c.cliente && !c.cliente.es_publico_general && (
-                <button className="text-xs underline whitespace-nowrap" onClick={() => setC((v) => ({ ...v, cliente: publico, tipo: "contado" }))}>Público en general</button>
-              )}
-              <button className="text-xs underline whitespace-nowrap" onClick={() => setNuevoCliente(nuevoCliente ? null : { nombre: textoCliente, rfc: "", telefono: "" })}>+ Nuevo</button>
-            </div>
+            {c.cliente && !cambiarCliente && !nuevoCliente ? (
+              // Tarjeta del cliente elegido; al pasar el puntero aparece "Editar" para cambiarlo
+              <button type="button" disabled={!!c.edicion} title={c.edicion ? "El cliente no se cambia al editar" : "Cambiar cliente"}
+                onClick={() => { setCambiarCliente(true); setTextoCliente(""); }}
+                className="group relative w-full text-left text-sm rounded px-3 py-2 border border-transparent hover:border-dashed hover:border-[var(--borde)] disabled:cursor-default">
+                <div><span className="font-semibold">Nombre:</span> {c.cliente.nombre}</div>
+                <div><span className="font-semibold">RFC:</span> {c.cliente.rfc ?? "—"}</div>
+                {saldoFavor > 0 && <div className="text-xs text-emerald-700">Saldo a favor: {fmtImporte(saldoFavor)}</div>}
+                {!c.edicion && (
+                  <span className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded bg-white/75 text-lg" style={{ color: "var(--acento)" }}>Editar</span>
+                )}
+              </button>
+            ) : (
+              <>
+                <div className="flex gap-2 items-center">
+                  <input className="campo text-center" style={{ borderColor: "var(--peligro)", borderStyle: "dashed" }} placeholder="Buscar cliente" value={textoCliente}
+                    autoFocus={cambiarCliente} onChange={(e) => setTextoCliente(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Escape") { setCambiarCliente(false); setClientes([]); } }} />
+                  <button className="text-xs underline whitespace-nowrap" onClick={() => setNuevoCliente(nuevoCliente ? null : { nombre: textoCliente, rfc: "", telefono: "" })}>+ Nuevo</button>
+                </div>
+                <div className="flex gap-3 mt-1 text-xs">
+                  {publico && c.cliente?.id !== publico.id && (
+                    <button className="underline" onClick={() => { setC((v) => ({ ...v, cliente: publico, tipo: v.tipo === "credito" ? "contado" : v.tipo })); setCambiarCliente(false); }}>Público en general</button>
+                  )}
+                  {c.cliente && cambiarCliente && <button className="underline" onClick={() => { setCambiarCliente(false); setClientes([]); }}>Cancelar</button>}
+                </div>
+              </>
+            )}
             {nuevoCliente && (
               <div className="mt-2 p-2 border border-[var(--borde)] rounded flex flex-col gap-2 text-sm">
                 <input className="campo" placeholder="Nombre *" autoFocus value={nuevoCliente.nombre} onChange={(e) => setNuevoCliente({ ...nuevoCliente, nombre: e.target.value })} />
@@ -444,12 +465,11 @@ export default function CapturarVenta() {
                 </div>
               </div>
             )}
-            <div className="text-sm mt-1">{c.cliente?.nombre}{c.cliente?.rfc ? ` · ${c.cliente.rfc}` : ""}</div>
             {clientes.length > 0 && (
               <ul className="absolute z-10 w-full bg-[var(--panel)] border border-[var(--borde)] shadow max-h-60 overflow-auto">
                 {clientes.map((cl) => (
                   <li key={cl.id} className="px-3 py-2 hover:bg-[var(--resalte)] cursor-pointer text-sm"
-                    onClick={() => { setC((v) => ({ ...v, cliente: cl })); setTextoCliente(""); setClientes([]); }}>
+                    onClick={() => { setC((v) => ({ ...v, cliente: cl })); setTextoCliente(""); setClientes([]); setCambiarCliente(false); }}>
                     {cl.nombre}{cl.rfc ? ` · ${cl.rfc}` : ""}
                   </li>
                 ))}
