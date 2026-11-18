@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import {
-  ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, equivalencia, fmtCantidad, mxn, mxnPrecio, unidadesNecesarias,
+  ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, equivalencia, fmtCantidad, fmtImporte, mxn, mxnPrecio, unidadesNecesarias,
 } from "@/lib/unidades";
 
 interface Linea {
@@ -312,7 +312,7 @@ export default function PuntoDeVenta() {
                 <select value={p.forma} onChange={(e) => setPagos((ps) => ps.map((x, j) => (j === i ? { ...x, forma: e.target.value as Pago["forma"] } : x)))} className="border rounded px-2 bg-[var(--panel)]">
                   {Object.entries(FORMAS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
-                <input autoFocus={i === 0} inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${total.toFixed(2)} (total)` : "Importe"} value={p.importe}
+                <input autoFocus={i === 0} inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${fmtImporte(total)} (total)` : "Importe"} value={p.importe}
                   onChange={(e) => setPagos((ps) => ps.map((x, j) => (j === i ? { ...x, importe: e.target.value } : x)))} className="flex-1 border rounded px-2 py-1 bg-[var(--panel)]" />
                 {p.forma !== "efectivo" && (
                   <input placeholder="Referencia" value={p.referencia} onChange={(e) => setPagos((ps) => ps.map((x, j) => (j === i ? { ...x, referencia: e.target.value } : x)))} className="w-32 border rounded px-2 bg-[var(--panel)]" />

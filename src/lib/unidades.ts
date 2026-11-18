@@ -137,3 +137,11 @@ export function nombreConCaja(nombre: string, m2PorCaja?: string | number | null
   const m2 = fmtCantidad(m2PorCaja, 4).replace(/,/g, "");
   return n.split(/\s+/).includes(m2) ? n : `${n} ${m2}`;
 }
+
+/** Importe con separador de miles y 2 decimales, sin signo: 12,345.60 */
+export const fmtImporte = (v: Decimal.Value) =>
+  D(v).toNumber().toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Precio unitario con separador de miles, como da (2 a 6 decimales): 1,234.5675 */
+export const fmtPrecio = (v: Decimal.Value) =>
+  D(v).toNumber().toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 6 });

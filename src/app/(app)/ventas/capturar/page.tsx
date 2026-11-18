@@ -10,7 +10,7 @@ import Decimal from "decimal.js";
 import { useRouter } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { EMPRESA_VACIA, EmpresaDoc, cargarEmpresa } from "@/lib/documentoVenta";
-import { ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, fmtCantidad, medida, unidadesNecesarias } from "@/lib/unidades";
+import { ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, fmtCantidad, fmtImporte, medida, unidadesNecesarias } from "@/lib/unidades";
 
 type Forma = "efectivo" | "transferencia" | "tarjeta_debito" | "tarjeta_credito";
 const FORMAS: Record<Forma, string> = {
@@ -253,7 +253,7 @@ export default function CapturarVenta() {
   if (c.lineas.some((l) => Number(l.precio) <= 0)) motivos.push("Hay partidas con precio en 0.");
   c.lineas.forEach((l, i) => { if (descuentos.propios[i].gt(descuentos.brutos[i])) motivos.push(`${l.producto.nombre}: el descuento es mayor al importe.`); });
   if (c.tipo === "credito" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("La venta a crédito requiere un cliente registrado.");
-  if (c.tipo === "contado" && c.lineas.length && pagado.lt(total)) motivos.push(`El pago no cubre el total: faltan ${faltaPagar.toFixed(2)}.`);
+  if (c.tipo === "contado" && c.lineas.length && pagado.lt(total)) motivos.push(`El pago no cubre el total: faltan ${fmtImporte(faltaPagar)}.`);
   const puedeGuardar = !guardando && motivos.length === 0;
 
   // ---------- guardar ----------
@@ -468,7 +468,7 @@ export default function CapturarVenta() {
                         )}
                       </td>
                     )}
-                    <td className="py-2 text-right underline decoration-dotted">{importes[i] ? importes[i]!.total.toFixed(2) : "—"}</td>
+                    <td className="py-2 text-right underline decoration-dotted">{importes[i] ? fmtImporte(importes[i]!.total) : "—"}</td>
                     <td className="py-2 text-right whitespace-nowrap">
                       <button className="mr-1 w-6 h-6 rounded-full text-white text-xs" style={{ background: l.verDesc || Number(l.descValor) > 0 ? "var(--acento)" : "#777" }}
                         title="Descuento del renglón" aria-label="Descuento del renglón" onClick={() => editar(l.uid, { verDesc: !l.verDesc })}>%</button>
@@ -523,7 +523,7 @@ export default function CapturarVenta() {
                 <select className="campo" value={p.forma} onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, forma: e.target.value as Forma } : x)) }))}>
                   {Object.entries(FORMAS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
                 </select>
-                <input className="campo" inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${total.toFixed(2)} (total)` : "Importe"} value={p.importe}
+                <input className="campo" inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${fmtImporte(total)} (total)` : "Importe"} value={p.importe}
                   onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, importe: e.target.value } : x)) }))} />
                 <input className="campo col-span-2 sm:col-span-1" placeholder={p.forma === "efectivo" ? "Referencia (opcional)" : "Referencia / últimos 4 dígitos / autorización"} value={p.referencia}
                   onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, referencia: e.target.value } : x)) }))} />
@@ -543,25 +543,25 @@ export default function CapturarVenta() {
 
           <div className="text-sm">
             <dl className="grid grid-cols-[1fr_auto] gap-y-1">
-              <dt>Subtotal:</dt><dd className="text-right">{subtotal.plus(descuento).toFixed(2)}</dd>
+              <dt>Subtotal:</dt><dd className="text-right">{fmtImporte(subtotal.plus(descuento))}</dd>
               <dt className="flex items-center gap-1">Descuento
                 <select className="campo !w-14 !px-1 !py-0.5" value={c.descGlobalTipo ?? "$"} onChange={(e) => setC((v) => ({ ...v, descGlobalTipo: e.target.value as TipoDesc }))}>
                   <option value="$">$</option><option value="%">%</option>
                 </select>
                 <input className="campo !w-20 !py-0.5 text-right" inputMode="decimal" placeholder="0" value={c.descGlobalValor ?? ""}
                   onChange={(e) => setC((v) => ({ ...v, descGlobalValor: e.target.value }))} />
-              </dt><dd className="text-right self-center">{descuento.toFixed(2)}</dd>
+              </dt><dd className="text-right self-center">{fmtImporte(descuento)}</dd>
               <dt>
                 I.V.A.:
                 <label className="ml-2 text-xs whitespace-nowrap" title="Desmarca solo si la venta debe llevar IVA">
                   <input type="checkbox" checked={sinIva} onChange={(e) => setC((v) => ({ ...v, sinIva: e.target.checked }))} /> Sin IVA
                 </label>
-              </dt><dd className="text-right">{iva.toFixed(2)}</dd>
-              <dt className="font-semibold text-base">Total (MXN):</dt><dd className="text-right font-semibold text-base">{total.toFixed(2)}</dd>
-              <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{pagado.toFixed(2)}</dd>
+              </dt><dd className="text-right">{fmtImporte(iva)}</dd>
+              <dt className="font-semibold text-base">Total (MXN):</dt><dd className="text-right font-semibold text-base">{fmtImporte(total)}</dd>
+              <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(pagado)}</dd>
               {c.tipo === "contado"
-                ? <><dt>Cambio:</dt><dd className="text-right font-semibold">{cambio.toFixed(2)}</dd></>
-                : <><dt>Saldo a crédito:</dt><dd className="text-right font-semibold">{faltaPagar.toFixed(2)}</dd></>}
+                ? <><dt>Cambio:</dt><dd className="text-right font-semibold">{fmtImporte(cambio)}</dd></>
+                : <><dt>Saldo a crédito:</dt><dd className="text-right font-semibold">{fmtImporte(faltaPagar)}</dd></>}
             </dl>
             <div className="flex justify-end gap-2 mt-4">
               <button className="px-3 py-2 underline" onClick={() => { if (window.confirm("¿Descartar esta captura?")) setC(capturaNueva(c.sucursalId, c.almacenId, publico)); }}>Descartar</button>

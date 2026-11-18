@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { fmtCantidad, mxn } from "@/lib/unidades";
+import { fmtCantidad, fmtImporte, fmtPrecio, mxn } from "@/lib/unidades";
 import { FORMAS_PAGO, VentaDoc, cargarVenta, emisorDe, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
 
 type Formato = "carta" | "ticket80" | "ticket58";
@@ -188,8 +188,8 @@ export default function DetalleVenta() {
                   </td>
                   <td className="text-right">{fmtCantidad(p.cantidad)}</td>
                   <td className="text-right">{fmtCantidad(p.cantidad_entregada)}</td>
-                  <td className="text-right">{Number(p.precio_unitario).toFixed(2)}</td>
-                  <td className="text-right">{Number(p.total).toFixed(2)}</td>
+                  <td className="text-right">{fmtPrecio(p.precio_unitario)}</td>
+                  <td className="text-right">{fmtImporte(p.total)}</td>
                 </tr>
               ))}
             </tbody>
@@ -207,15 +207,15 @@ export default function DetalleVenta() {
             {v.comentarios && <><div className="mt-3 text-[var(--tenue)]">Comentarios</div><p className="whitespace-pre-wrap">{v.comentarios}</p></>}
           </div>
           <dl className="grid grid-cols-[1fr_auto] gap-y-1">
-            <dt>Subtotal:</dt><dd className="text-right">{Number(v.subtotal).toFixed(2)}</dd>
-            <dt>Descuento:</dt><dd className="text-right">{Number(v.descuento).toFixed(2)}</dd>
-            {Number(v.ieps) > 0 && <><dt>I.E.P.S.:</dt><dd className="text-right">{Number(v.ieps).toFixed(2)}</dd></>}
-            <dt>I.V.A.:</dt><dd className="text-right">{Number(v.iva).toFixed(2)}</dd>
-            <dt className="font-semibold text-base">Total (MXN):</dt><dd className="text-right font-semibold text-base">{Number(v.total).toFixed(2)}</dd>
-            <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{Number(v.pagado).toFixed(2)}</dd>
+            <dt>Subtotal:</dt><dd className="text-right">{fmtImporte(v.subtotal)}</dd>
+            <dt>Descuento:</dt><dd className="text-right">{fmtImporte(v.descuento)}</dd>
+            {Number(v.ieps) > 0 && <><dt>I.E.P.S.:</dt><dd className="text-right">{fmtImporte(v.ieps)}</dd></>}
+            <dt>I.V.A.:</dt><dd className="text-right">{fmtImporte(v.iva)}</dd>
+            <dt className="font-semibold text-base">Total (MXN):</dt><dd className="text-right font-semibold text-base">{fmtImporte(v.total)}</dd>
+            <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(v.pagado)}</dd>
             {v.tipo === "credito"
-              ? <><dt>Saldo:</dt><dd className="text-right font-semibold">{Number(v.saldo).toFixed(2)}</dd></>
-              : <><dt>Cambio:</dt><dd className="text-right font-semibold">{Number(v.cambio).toFixed(2)}</dd></>}
+              ? <><dt>Saldo:</dt><dd className="text-right font-semibold">{fmtImporte(v.saldo)}</dd></>
+              : <><dt>Cambio:</dt><dd className="text-right font-semibold">{fmtImporte(v.cambio)}</dd></>}
           </dl>
         </div>
       </section>
