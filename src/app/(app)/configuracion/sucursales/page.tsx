@@ -40,7 +40,7 @@ export default function Sucursales() {
     try {
       const sb = supabase();
       const consulta = (extra: string) => sb.from("sucursales")
-        .select(`id, codigo, nombre, cp_expedicion, activa, almacenes(id, nombre, multisucursal, activo), series(tipo_documento, prefijo, siguiente, activa)${extra}`).order("codigo");
+        .select(`id, codigo, nombre, cp_expedicion, activa, almacenes!almacenes_sucursal_id_fkey(id, nombre, multisucursal, activo), series(tipo_documento, prefijo, siguiente, activa)${extra}`).order("codigo");
       const [primera, perm, us, prop] = await Promise.all([
         consulta(", almacen_predeterminado_id"),
         sb.rpc("tiene_permiso", { p_permiso: "administrar" }),

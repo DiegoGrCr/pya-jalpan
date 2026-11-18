@@ -27,7 +27,7 @@ export default function ImportarProductos() {
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase().from("almacenes").select("id, nombre, sucursales(codigo)").eq("activo", true).order("nombre");
+      const { data } = await supabase().from("almacenes").select("id, nombre, sucursales!almacenes_sucursal_id_fkey(codigo)").eq("activo", true).order("nombre");
       const al = ((data ?? []) as unknown as { id: string; nombre: string; sucursales: { codigo: string } | null }[])
         .map((x) => ({ id: x.id, nombre: x.nombre, suc: x.sucursales?.codigo ?? "" }));
       setAlmacenes(al);

@@ -73,7 +73,7 @@ export default function PuntoDeVenta() {
     (async () => {
       try {
         const sb = supabase();
-        const { data: us } = await sb.from("usuario_sucursales").select("sucursal_id, sucursales(almacenes(id))").limit(1).maybeSingle();
+        const { data: us } = await sb.from("usuario_sucursales").select("sucursal_id, sucursales(almacenes!almacenes_sucursal_id_fkey(id))").limit(1).maybeSingle();
         const { data: lista } = await sb.from("listas_precios").select("id, incluye_impuestos").eq("predeterminada", true).maybeSingle();
         const almacenId = (us as FilaContexto | null)?.sucursales?.almacenes?.[0]?.id;
         if (us && lista && almacenId) setCtx({ sucursalId: us.sucursal_id, almacenId, listaId: lista.id, incluyeImpuestos: lista.incluye_impuestos });

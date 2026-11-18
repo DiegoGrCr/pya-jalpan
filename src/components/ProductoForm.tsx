@@ -23,7 +23,7 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
     (async () => {
       const sb = supabase();
       const [m, c, a] = await Promise.all([sb.from("marcas").select("nombre").order("nombre"), sb.from("categorias").select("nombre").order("nombre"),
-        sb.from("almacenes").select("id, nombre, activo, sucursales(codigo)").eq("activo", true).order("nombre")]);
+        sb.from("almacenes").select("id, nombre, activo, sucursales!almacenes_sucursal_id_fkey(codigo)").eq("activo", true).order("nombre")]);
       const al = ((a.data ?? []) as unknown as { id: string; nombre: string; sucursales: { codigo: string } | null }[])
         .map((x) => ({ id: x.id, nombre: x.nombre, suc: x.sucursales?.codigo ?? "" }));
       setAlmacenes(al);

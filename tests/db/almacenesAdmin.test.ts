@@ -30,3 +30,10 @@ describe("administrar almacenes", () => {
     await expect(rpc(s.cajeroA, "actualizar_almacen", { id: s.almA, nombre: "X" })).rejects.toThrow(/propietario/);
   });
 });
+
+describe("relación sucursales–almacenes", () => {
+  it("la llave usada por la app para unir almacenes con su sucursal se llama almacenes_sucursal_id_fkey", async () => {
+    const r = await q(`select conname from pg_constraint where conrelid = 'public.almacenes'::regclass and contype = 'f'`);
+    expect(r.map((x) => x.conname)).toContain("almacenes_sucursal_id_fkey");
+  });
+});
