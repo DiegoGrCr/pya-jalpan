@@ -214,20 +214,29 @@ export default function Inicio() {
             <div className="grid gap-6 lg:grid-cols-2">
               <div>
                 <h2 className="text-lg mb-2">Productos más vendidos</h2>
-                <table className="w-full text-sm">
-                  <thead style={{ color: "var(--acento)" }}><tr className="text-left border-b border-[var(--borde)]">
-                    <th className="font-normal py-1">Producto</th><th className="font-normal text-right">M² / cant.</th><th className="font-normal text-right">Total</th></tr></thead>
-                  <tbody>
-                    {t.productos.map((x) => (
-                      <tr key={x.sku} className="border-b border-[var(--borde)]">
-                        <td className="py-1.5 pr-2">{nombreConCaja(x.nombre, x.m2_por_caja, x.formato)}<div className="text-xs text-[var(--tenue)]">{x.sku}</div></td>
-                        <td className="text-right pr-2 whitespace-nowrap">{x.m2 ? `${fmtCantidad(x.m2, 2)} m²` : fmtCantidad(x.cantidad_base, 2)}</td>
-                        <td className="text-right whitespace-nowrap">{$(x.total)}</td>
-                      </tr>
-                    ))}
-                    {!t.productos.length && <tr><td colSpan={3} className="py-3 text-[var(--tenue)]">Sin ventas en el periodo.</td></tr>}
-                  </tbody>
-                </table>
+                {/* Barras horizontales (un solo color) con el total y los m² / cantidad a la vista */}
+                {!t.productos.length && <div className="text-sm text-[var(--tenue)]">Sin ventas en el periodo.</div>}
+                <ol className="flex flex-col gap-2.5 text-sm">
+                  {t.productos.map((x, i) => {
+                    const max = Math.max(1, ...t.productos.map((y) => Number(y.total)));
+                    return (
+                      <li key={x.sku} title={`${x.sku} · ${$(x.total)}`}>
+                        <div className="flex justify-between gap-3">
+                          <span className="min-w-0 truncate"><span className="text-[var(--tenue)] mr-1">{i + 1}.</span>{nombreConCaja(x.nombre, x.m2_por_caja, x.formato)}</span>
+                          <span className="whitespace-nowrap font-medium">{$(x.total)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <div className="flex-1 h-2 rounded bg-[var(--resalte)]">
+                            <div className="h-2 rounded" style={{ width: `${(Number(x.total) / max) * 100}%`, background: "var(--acento)" }} />
+                          </div>
+                          <span className="text-xs text-[var(--tenue)] whitespace-nowrap w-24 text-right">
+                            {x.m2 ? `${fmtCantidad(x.m2, 2)} m²` : fmtCantidad(x.cantidad_base, 2)}
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
               </div>
               <div className="flex flex-col gap-6">
                 <div>
