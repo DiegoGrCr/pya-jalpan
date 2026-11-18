@@ -1,21 +1,21 @@
 @import "tailwindcss";
 
-/* Tema claro (como el sistema anterior, para que el personal reconozca la distribución) */
+/* Tema claro: verde azulado propio (no el azul del sistema anterior); menú oscuro verdoso */
 :root {
-  --fondo: #eef1f4;
+  --fondo: #eef2f1;
   --panel: #ffffff;
-  --texto: #1f2a37;
-  --tenue: #6b7785;
-  --borde: #d5dbe2;
-  --resalte: #e6f0fa;
-  --acento: #1f6fb2;          /* azul de acciones y barras de sección */
+  --texto: #1c2b29;
+  --tenue: #63746f;
+  --borde: #d3dcda;
+  --resalte: #e3f2ef;
+  --acento: #0f766e;          /* verde azulado: acciones, enlaces y barras de sección */
   --acento-texto: #ffffff;
   --exito: #1e8e5a;
   --peligro: #c62f2f;
-  --menu: #1d2b3a;            /* menú lateral */
-  --menu-texto: #d7e0ea;
-  --menu-activo: #2c3e52;
-  --barra: #16222e;           /* barra superior */
+  --menu: #12302d;            /* menú lateral */
+  --menu-texto: #d4e6e2;
+  --menu-activo: #1c4440;
+  --barra: #0b2f2c;           /* barra superior */
 }
 
 @theme inline {

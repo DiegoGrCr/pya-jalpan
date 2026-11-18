@@ -196,7 +196,8 @@ export async function generarPdf(v: VentaDoc, formato: "carta" | "ticket80" | "t
 type Doc = import("jspdf").jsPDF;
 type AutoTable = typeof import("jspdf-autotable").autoTable;
 type RGB = [number, number, number];
-const AZUL: RGB = [0, 150, 200], GRIS: RGB = [240, 240, 240], TEXTO: RGB = [60, 60, 60];
+const AZUL: RGB = [15, 118, 110],   // color principal del sistema (verde azulado)
+      GRIS: RGB = [240, 240, 240], TEXTO: RGB = [60, 60, 60];
 const n2 = (x: string | number) => Number(x).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const n4 = (x: string | number) => Number(x).toLocaleString("es-MX", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 /** Precio unitario como da (4 a 6 decimales). */

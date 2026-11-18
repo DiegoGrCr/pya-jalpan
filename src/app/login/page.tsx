@@ -37,7 +37,7 @@ export default function Login() {
           <input type="password" required autoComplete="current-password" value={contrasena} onChange={(e) => setContrasena(e.target.value)} className="border rounded px-3 py-2 bg-[var(--panel)]" />
         </label>
         {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
-        <button disabled={cargando} className="rounded-md bg-emerald-600 text-white py-2 disabled:opacity-50">{cargando ? "Entrando…" : "Entrar"}</button>
+        <button disabled={cargando} className="btn-primario py-2 disabled:opacity-50">{cargando ? "Entrando…" : "Entrar"}</button>
       </form>
     </main>
   );
