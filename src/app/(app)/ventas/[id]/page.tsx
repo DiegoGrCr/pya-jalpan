@@ -10,6 +10,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtCantidad, fmtImporte, fmtPrecio, mxn, nombreConCaja } from "@/lib/unidades";
+import { copiarImagen, pdfAPng } from "@/lib/notaImagen";
 import { FORMAS_PAGO, VentaDoc, cargarVenta, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
 
 type Formato = "carta" | "ticket80" | "ticket58";
@@ -42,7 +43,7 @@ export default function DetalleVenta() {
   // Los avisos de éxito desaparecen solos
   useEffect(() => {
     if (msg?.tipo !== "ok") return;
-    const t = setTimeout(() => setMsg(null), /Cambio/.test(msg.texto) ? 10000 : 3500); // el cambio se deja más tiempo a la vista
+    const t = setTimeout(() => setMsg(null), /Cambio|Ctrl\+V/.test(msg.texto) ? 10000 : 3500); // el cambio se deja más tiempo a la vista
     return () => clearTimeout(t);
   }, [msg]);
   useEffect(() => {
@@ -92,43 +93,49 @@ export default function DetalleVenta() {
   };
 
   /**
-   * WhatsApp con la nota en PDF:
+   * WhatsApp con la nota:
    * - Celular: menú para compartir del equipo con el PDF adjunto (eliges WhatsApp y el contacto).
-   * - Computadora: el PDF se sube al espacio privado "notas" y se manda un enlace que caduca en 30 días.
+   * - Computadora: la nota se copia como imagen y se abre el chat del cliente; se pega con Ctrl+V.
    */
   const whatsapp = async () => {
     if (!v) return;
     const tel = (v.cliente.telefono ?? "").replace(/\D/g, "");
     const num = tel.length === 10 ? `52${tel}` : tel;
-    const abrirWa = (w: Window | null, texto: string) => {
-      const url = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
-      if (w) w.location.href = url; else window.open(url, "_blank", "noopener");
-    };
     const movil = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && typeof navigator.canShare === "function";
-    // La ventana se abre en el mismo clic para que el navegador no la bloquee
-    const ventana = movil ? null : window.open("about:blank", "_blank");
     setTrabajando(true);
     try {
-      const b = await generarPdf(v, "carta");
-      const archivo = new File([b], nombreArchivo("carta"), { type: "application/pdf" });
-      if (movil && navigator.canShare({ files: [archivo] })) {
-        await navigator.share({ files: [archivo], title: tituloDe(v), text: resumenTexto(v) });
-        return;
+      const pdf = await generarPdf(v, "carta");
+      if (movil) {
+        const archivo = new File([pdf], nombreArchivo("carta"), { type: "application/pdf" });
+        if (navigator.canShare({ files: [archivo] })) { await navigator.share({ files: [archivo], title: tituloDe(v) }); return; }
       }
-      const ruta = `ventas/${v.id}/${folioDe(v)}-${crypto.randomUUID().slice(0, 8)}.pdf`;
-      const sb = supabase().storage.from("notas");
-      const sub = await sb.upload(ruta, b, { contentType: "application/pdf" });
-      const firmado = sub.error ? null : await sb.createSignedUrl(ruta, 60 * 60 * 24 * 30);
-      if (!firmado || firmado.error || !firmado.data) {
-        abrirWa(ventana, resumenTexto(v));
-        setMsg({ tipo: "error", texto: "No se pudo adjuntar el PDF (falta ejecutar la migración 20261118000023_notas_pdf.sql). Se envió solo el resumen; descarga el PDF y adjúntalo en WhatsApp." });
-        return;
-      }
-      abrirWa(ventana, `${resumenTexto(v)}\n\nNota en PDF: ${firmado.data.signedUrl}`);
+      const copiada = await copiarImagen(await pdfAPng(pdf));
+      const abierta = window.open(`https://wa.me/${num}`, "_blank");
+      if (abierta) abierta.opener = null;
+      setMsg(copiada
+        ? { tipo: "ok", texto: `Nota copiada como imagen. En el chat de WhatsApp presiona Ctrl+V y envía.${abierta ? "" : " (Abre WhatsApp tú: el navegador bloqueó la ventana.)"}` }
+        : { tipo: "error", texto: "Este navegador no permite copiar la imagen. Usa Acciones › Descargar imagen y adjúntala en WhatsApp." });
     } catch (e) {
-      ventana?.close();
       if ((e as Error).name !== "AbortError") setMsg({ tipo: "error", texto: mensajeError(e) });
     } finally { setTrabajando(false); }
+  };
+
+  /** Copia la nota como imagen o la descarga como PNG. */
+  const imagen = async (modo: "copiar" | "descargar") => {
+    if (!v) return;
+    setTrabajando(true);
+    try {
+      const png = await pdfAPng(await generarPdf(v, "carta"));
+      if (modo === "copiar") {
+        setMsg(await copiarImagen(png)
+          ? { tipo: "ok", texto: "Nota copiada como imagen. Pégala con Ctrl+V donde la necesites." }
+          : { tipo: "error", texto: "Este navegador no permite copiar imágenes. Usa Descargar imagen." });
+      } else {
+        const url = URL.createObjectURL(png);
+        Object.assign(document.createElement("a"), { href: url, download: `${folioDe(v)}.png` }).click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      }
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
   };
 
   const cancelar = async () => {
@@ -175,6 +182,8 @@ export default function DetalleVenta() {
     { texto: "Descargar PDF ticket", fn: () => descargar(ticket) },
     { texto: "Enviar por correo", fn: correo },
     { texto: "Enviar por WhatsApp", fn: whatsapp },
+    { texto: "Copiar nota como imagen", fn: () => imagen("copiar") },
+    { texto: "Descargar imagen (PNG)", fn: () => imagen("descargar") },
     { texto: "Compartir", fn: compartir },
     { texto: "Emitir factura (CFDI)", deshabilitado: true, nota: "Disponible cuando se configure la facturación" },
     ...(!cancelada ? [{ texto: "Cancelar venta", fn: cancelar, deshabilitado: !!v.factura_uuid, peligro: true }] : []),
