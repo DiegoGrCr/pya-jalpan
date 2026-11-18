@@ -91,11 +91,44 @@ export default function DetalleVenta() {
     setMsg({ tipo: "ok", texto: "Se abrió tu programa de correo. Descarga el PDF y adjúntalo al mensaje." });
   };
 
-  const whatsapp = () => {
+  /**
+   * WhatsApp con la nota en PDF:
+   * - Celular: menú para compartir del equipo con el PDF adjunto (eliges WhatsApp y el contacto).
+   * - Computadora: el PDF se sube al espacio privado "notas" y se manda un enlace que caduca en 30 días.
+   */
+  const whatsapp = async () => {
     if (!v) return;
     const tel = (v.cliente.telefono ?? "").replace(/\D/g, "");
     const num = tel.length === 10 ? `52${tel}` : tel;
-    window.open(`https://wa.me/${num}?text=${encodeURIComponent(resumenTexto(v))}`, "_blank", "noopener");
+    const abrirWa = (w: Window | null, texto: string) => {
+      const url = `https://wa.me/${num}?text=${encodeURIComponent(texto)}`;
+      if (w) w.location.href = url; else window.open(url, "_blank", "noopener");
+    };
+    const movil = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent) && typeof navigator.canShare === "function";
+    // La ventana se abre en el mismo clic para que el navegador no la bloquee
+    const ventana = movil ? null : window.open("about:blank", "_blank");
+    setTrabajando(true);
+    try {
+      const b = await generarPdf(v, "carta");
+      const archivo = new File([b], nombreArchivo("carta"), { type: "application/pdf" });
+      if (movil && navigator.canShare({ files: [archivo] })) {
+        await navigator.share({ files: [archivo], title: tituloDe(v), text: resumenTexto(v) });
+        return;
+      }
+      const ruta = `ventas/${v.id}/${folioDe(v)}-${crypto.randomUUID().slice(0, 8)}.pdf`;
+      const sb = supabase().storage.from("notas");
+      const sub = await sb.upload(ruta, b, { contentType: "application/pdf" });
+      const firmado = sub.error ? null : await sb.createSignedUrl(ruta, 60 * 60 * 24 * 30);
+      if (!firmado || firmado.error || !firmado.data) {
+        abrirWa(ventana, resumenTexto(v));
+        setMsg({ tipo: "error", texto: "No se pudo adjuntar el PDF (falta ejecutar la migración 20261118000023_notas_pdf.sql). Se envió solo el resumen; descarga el PDF y adjúntalo en WhatsApp." });
+        return;
+      }
+      abrirWa(ventana, `${resumenTexto(v)}\n\nNota en PDF: ${firmado.data.signedUrl}`);
+    } catch (e) {
+      ventana?.close();
+      if ((e as Error).name !== "AbortError") setMsg({ tipo: "error", texto: mensajeError(e) });
+    } finally { setTrabajando(false); }
   };
 
   const cancelar = async () => {
