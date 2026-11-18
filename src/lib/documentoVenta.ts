@@ -10,7 +10,7 @@ import { fechaCorta, fechaLarga, importeConLetra } from "@/lib/letras";
 
 export const FORMAS_PAGO: Record<string, string> = {
   efectivo: "Efectivo", transferencia: "Transferencia", tarjeta_debito: "Tarjeta de débito",
-  tarjeta_credito: "Tarjeta de crédito", anticipo: "Anticipo de apartado",
+  tarjeta_credito: "Tarjeta de crédito", anticipo: "Anticipo de apartado", saldo_favor: "Saldo a favor",
 };
 
 export interface PartidaDoc {

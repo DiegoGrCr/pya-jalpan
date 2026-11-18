@@ -12,9 +12,9 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { EMPRESA_VACIA, EmpresaDoc, cargarEmpresa } from "@/lib/documentoVenta";
 import { ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, fmtCantidad, fmtImporte, medida, unidadesNecesarias } from "@/lib/unidades";
 
-type Forma = "efectivo" | "transferencia" | "tarjeta_debito" | "tarjeta_credito";
+type Forma = "efectivo" | "transferencia" | "tarjeta_debito" | "tarjeta_credito" | "saldo_favor";
 const FORMAS: Record<Forma, string> = {
-  efectivo: "Efectivo", transferencia: "Transferencia", tarjeta_debito: "Tarjeta de débito", tarjeta_credito: "Tarjeta de crédito",
+  efectivo: "Efectivo", transferencia: "Transferencia", tarjeta_debito: "Tarjeta de débito", tarjeta_credito: "Tarjeta de crédito", saldo_favor: "Saldo a favor",
 };
 
 type TipoDesc = "$" | "%";
@@ -22,6 +22,8 @@ interface Linea {
   uid: string; producto: ProductoVenta; unidadId: string; cantidad: string; precio: string; descuento: string; entregarAhora: boolean; comentario: string;
   /** Descuento del renglón en $ o %; verDesc / verComent muestran sus campos */
   descTipo?: TipoDesc; descValor?: string; verDesc?: boolean; verComent?: boolean;
+  /** Edición: renglón existente y lo ya entregado (en la unidad vendida) */
+  partidaId?: string; entregada?: string;
 }
 interface Pago { forma: Forma; importe: string; referencia: string }
 interface Cliente { id: string; nombre: string; rfc: string | null; es_publico_general: boolean; lista_precios_id: string | null; limite_credito: string; dias_credito: number }
@@ -30,6 +32,8 @@ interface Sucursal { id: string; codigo: string; nombre: string; cp_expedicion: 
 interface Captura {
   clave: string; sucursalId: string; almacenId: string; cliente: Cliente | null; tipo: "contado" | "credito" | "abono"; lineas: Linea[]; pagos: Pago[]; comentarios: string; sinIva?: boolean;
   ordenCompra?: string; descGlobalTipo?: TipoDesc; descGlobalValor?: string;
+  /** Edición de una venta ya guardada (mismo folio) */
+  edicion?: { ventaId: string; folio: string; pagado: string };
 }
 interface DetalleProducto { producto: ProductoVenta; filas: { almacen: string; cantidad: number; apartado: number }[] | null }
 const CLIENTE_COLS = "id, nombre, rfc, es_publico_general, lista_precios_id, limite_credito, dias_credito";
@@ -64,6 +68,8 @@ export default function CapturarVenta() {
   const [enLinea, setEnLinea] = useState(true);
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string; avisos?: string[] } | null>(null);
   const [guardando, setGuardando] = useState(false);
+  const [saldoFavor, setSaldoFavor] = useState(0);
+  const [diferencia, setDiferencia] = useState<{ exceso: Decimal; opcion: "devolver" | "saldo_favor"; forma: Forma } | null>(null);
   const busRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
@@ -88,8 +94,11 @@ export default function CapturarVenta() {
         if (lp.data) setLista({ id: lp.data.id, incluye: lp.data.incluye_impuestos });
         if (!sucs.length) setMsg({ tipo: "error", texto: "Tu usuario no tiene sucursales asignadas." });
 
+        const editarId = new URLSearchParams(window.location.search).get("editar");
+        if (editarId) { await cargarEdicion(editarId, lp.data?.id ?? null); return; }
         let guardada: Captura | null = null;
         try { const s = localStorage.getItem(CLAVE_LOCAL); if (s) guardada = JSON.parse(s); } catch { /* sin almacenamiento */ }
+        if (guardada?.edicion) guardada = null;
         if (guardada && guardada.lineas.length) setC(guardada);
         else {
           const s0 = sucs[0]?.id ?? "";
@@ -100,8 +109,44 @@ export default function CapturarVenta() {
     })();
   }, []);
 
-  // La captura se conserva en este equipo hasta guardarla (por si se va la conexión)
-  useEffect(() => { try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(c)); } catch { /* ignorar */ } }, [c]);
+  // La captura se conserva en este equipo hasta guardarla (por si se va la conexión); la edición no
+  useEffect(() => { if (c.edicion) return; try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(c)); } catch { /* ignorar */ } }, [c]);
+
+  /** Carga una venta guardada para editarla en esta misma pantalla. */
+  async function cargarEdicion(id: string, listaId: string | null) {
+    const sb = supabase();
+    const { data, error } = await sb.from("ventas").select(`id, serie, folio, sucursal_id, almacen_id, tipo, con_abono, pagado, comentarios, orden_compra, sin_iva, cerrada, estado,
+      clientes(${CLIENTE_COLS}),
+      venta_partidas(id, renglon, unidad_venta_id, cantidad, cantidad_entregada, precio_unitario, descuento, comentario,
+        productos(id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, presentacion, m2_por_caja, piezas_por_caja, formato,
+          unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))))`).eq("id", id).maybeSingle();
+    if (error) {
+      if (/cerrada|con_abono|orden_compra/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000027_ventas_editables.sql en Supabase.");
+      throw error;
+    }
+    if (!data) throw new Error("No se encontró la venta o no tienes acceso a su sucursal.");
+    const v = data as unknown as {
+      id: string; serie: string; folio: number; sucursal_id: string; almacen_id: string; tipo: "contado" | "credito"; con_abono: boolean; pagado: string;
+      comentarios: string | null; orden_compra: string | null; sin_iva: boolean; cerrada: boolean; estado: string; clientes: Cliente;
+      venta_partidas: { id: string; renglon: number; unidad_venta_id: string; cantidad: string; cantidad_entregada: string; precio_unitario: string; descuento: string; comentario: string | null;
+        productos: FilaProducto }[];
+    };
+    if (v.estado !== "confirmada") throw new Error("La venta está cancelada; ya no se puede editar.");
+    if (v.cerrada) throw new Error("La venta está cerrada; ya no se puede editar.");
+    const lineas: Linea[] = [...v.venta_partidas].sort((a, b) => a.renglon - b.renglon).map((vp) => {
+      const { unidades_venta, ...prod } = vp.productos;
+      const producto: ProductoVenta = { ...prod, unidades: [...unidades_venta].sort((a, b) => a.orden - b.orden)
+        .map((u) => ({ ...u, precio: u.precios?.find((x) => x.lista_id === listaId)?.precio ?? null })) };
+      return { uid: crypto.randomUUID(), producto, unidadId: vp.unidad_venta_id, cantidad: String(Number(vp.cantidad)), precio: String(Number(vp.precio_unitario)),
+        descuento: "0", entregarAhora: Number(vp.cantidad_entregada) >= Number(vp.cantidad), comentario: vp.comentario ?? "",
+        descTipo: "$", descValor: Number(vp.descuento) > 0 ? String(Number(vp.descuento)) : "", verDesc: Number(vp.descuento) > 0,
+        partidaId: vp.id, entregada: String(Number(vp.cantidad_entregada)) };
+    });
+    setC({ clave: crypto.randomUUID(), sucursalId: v.sucursal_id, almacenId: v.almacen_id, cliente: v.clientes,
+      tipo: v.tipo === "credito" ? "credito" : v.con_abono ? "abono" : "contado", lineas, pagos: [], comentarios: v.comentarios ?? "",
+      sinIva: v.sin_iva !== false, ordenCompra: v.orden_compra ?? "", edicion: { ventaId: v.id, folio: `${v.serie}${v.folio}`, pagado: String(v.pagado) } });
+    cargarExistencias([...new Set(lineas.map((l) => l.producto.id))], v.almacen_id);
+  }
 
   useEffect(() => {
     const on = () => setEnLinea(true), off = () => setEnLinea(false);
@@ -226,6 +271,14 @@ export default function CapturarVenta() {
     return { porRenglon: propios.map((p, i) => p.plus(reparto[i])), propios, brutos, general };
   }, [c.lineas, c.descGlobalTipo, c.descGlobalValor]);
 
+  // Saldo a favor del cliente elegido (0027); si falta la migración queda en 0
+  useEffect(() => {
+    setSaldoFavor(0);
+    if (!c.cliente || c.cliente.es_publico_general) return;
+    supabase().from("clientes").select("saldo_a_favor").eq("id", c.cliente.id).maybeSingle()
+      .then(({ data }: { data: unknown }) => setSaldoFavor(Number((data as { saldo_a_favor?: string } | null)?.saldo_a_favor ?? 0)));
+  }, [c.cliente]);
+
   // ---------- importes ----------
   // Remisión sin IVA (predeterminado): el precio es el importe final y la tasa de IVA queda en 0
   const sinIva = c.sinIva !== false;
@@ -252,14 +305,48 @@ export default function CapturarVenta() {
   for (const l of invalidas) motivos.push(`${l.producto.nombre}: la cantidad debe ser mayor a 0${l.producto.permite_fraccion ? "" : " y en unidades completas"}.`);
   if (c.lineas.some((l) => Number(l.precio) <= 0)) motivos.push("Hay partidas con precio en 0.");
   c.lineas.forEach((l, i) => { if (descuentos.propios[i].gt(descuentos.brutos[i])) motivos.push(`${l.producto.nombre}: el descuento es mayor al importe.`); });
-  if (c.tipo === "credito" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("La venta a crédito requiere un cliente registrado.");
-  if (c.tipo === "abono" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("Para dejar saldo pendiente elige o da de alta al cliente (+ Nuevo).");
-  if (c.tipo === "abono" && pagado.gt(total)) motivos.push("El abono es mayor al total de la venta.");
-  if (c.tipo === "contado" && c.lineas.length && pagado.lt(total)) motivos.push(`El pago no cubre el total: faltan ${fmtImporte(faltaPagar)}.`);
+  c.lineas.forEach((l) => { if (l.entregada && dec(l.cantidad).lt(dec(l.entregada))) motivos.push(`${l.producto.nombre}: no puedes dejar menos de lo ya entregado (${fmtCantidad(l.entregada)}).`); });
+  if (!c.edicion) {
+    if (c.tipo === "credito" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("La venta a crédito requiere un cliente registrado.");
+    if (c.tipo === "abono" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("Para dejar saldo pendiente elige o da de alta al cliente (+ Nuevo).");
+    if (c.tipo === "abono" && pagado.gt(total)) motivos.push("El abono es mayor al total de la venta.");
+    if (c.tipo === "contado" && c.lineas.length && pagado.lt(total)) motivos.push(`El pago no cubre el total: faltan ${fmtImporte(faltaPagar)}.`);
+    const usoFavor = c.pagos.filter((x) => x.forma === "saldo_favor").reduce((a, x) => a.plus(dec(x.importe)), new Decimal(0));
+    if (usoFavor.gt(saldoFavor)) motivos.push(`El cliente solo tiene ${fmtImporte(saldoFavor)} de saldo a favor.`);
+  }
   const puedeGuardar = !guardando && motivos.length === 0;
 
   // ---------- guardar ----------
+  const pagadoPrevio = c.edicion ? dec(c.edicion.pagado) : new Decimal(0);
+
+  const guardarEdicion = async (dif?: { opcion: "devolver" | "saldo_favor"; forma: Forma }) => {
+    if (!c.edicion || !puedeGuardar) return;
+    if (!dif && total.lt(pagadoPrevio)) {
+      setDiferencia({ exceso: pagadoPrevio.minus(total), opcion: c.cliente && !c.cliente.es_publico_general ? "saldo_favor" : "devolver", forma: "efectivo" });
+      return;
+    }
+    setGuardando(true); setMsg(null);
+    try {
+      const { error } = await supabase().rpc("editar_venta", { p: {
+        idempotency_key: c.clave, venta_id: c.edicion.ventaId, comentarios: c.comentarios || null, orden_compra: c.ordenCompra?.trim() || null,
+        ...(dif ? { diferencia: dif.opcion, devolucion_forma: dif.forma } : {}),
+        partidas: c.lineas.map((l, i) => ({ partida_id: l.partidaId ?? null, producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
+          precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora, comentario: l.comentario?.trim() || null })),
+      } });
+      if (error) {
+        if (/editar_venta/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000027_ventas_editables.sql en Supabase.");
+        throw error;
+      }
+      setDiferencia(null);
+      router.push(`/ventas/${c.edicion.ventaId}?editada=1`);
+    } catch (e) {
+      setMsg({ tipo: "error", texto: mensajeError(e) });
+      setC((v) => ({ ...v, clave: crypto.randomUUID() }));   // nueva clave para reintentar
+    } finally { setGuardando(false); }
+  };
+
   const guardar = async () => {
+    if (c.edicion) return guardarEdicion();
     if (!puedeGuardar) return;
     setGuardando(true); setMsg(null);
     try {
@@ -311,6 +398,12 @@ export default function CapturarVenta() {
         </div>
       )}
 
+      {c.edicion && (
+        <div className="mb-3 rounded px-4 py-2 bg-sky-50 text-sky-900 border border-sky-200 text-sm">
+          Editando la venta <b>{c.edicion.folio}</b>. Al guardar se conserva el folio y el inventario se ajusta por la diferencia.
+          Cliente, sucursal, almacén y tipo de venta no se cambian.
+        </div>
+      )}
       <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] p-4 sm:p-6">
         {/* Encabezado */}
         <div className="flex flex-wrap md:flex-nowrap gap-4 justify-between">
@@ -331,7 +424,7 @@ export default function CapturarVenta() {
           </div>
           <div className="relative w-full md:w-80 shrink-0">
             <div className="flex gap-2 items-center">
-              <input className="campo text-center" style={{ borderColor: "var(--peligro)", borderStyle: "dashed" }} placeholder="Buscar cliente" value={textoCliente}
+              <input className="campo text-center" style={{ borderColor: "var(--peligro)", borderStyle: "dashed" }} placeholder="Buscar cliente" value={textoCliente} disabled={!!c.edicion}
                 onChange={(e) => setTextoCliente(e.target.value)} />
               {c.cliente && !c.cliente.es_publico_general && (
                 <button className="text-xs underline whitespace-nowrap" onClick={() => setC((v) => ({ ...v, cliente: publico, tipo: "contado" }))}>Público en general</button>
@@ -367,7 +460,7 @@ export default function CapturarVenta() {
 
         <div className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-5 text-sm">
           <label>Sucursal:
-            <select className="campo" value={c.sucursalId} onChange={(e) => {
+            <select className="campo" value={c.sucursalId} disabled={!!c.edicion} onChange={(e) => {
               const a = almacenes.find((x) => x.sucursal_id === e.target.value)?.id ?? "";
               setC((v) => ({ ...v, sucursalId: e.target.value, almacenId: a }));
             }}>
@@ -375,12 +468,12 @@ export default function CapturarVenta() {
             </select>
           </label>
           <label>Almacén:
-            <select className="campo" value={c.almacenId} onChange={(e) => setC((v) => ({ ...v, almacenId: e.target.value }))}>
+            <select className="campo" value={c.almacenId} disabled={!!c.edicion} onChange={(e) => setC((v) => ({ ...v, almacenId: e.target.value }))}>
               {almacenesSucursal.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
           </label>
           <label>Tipo de venta:
-            <select className="campo" value={c.tipo} onChange={(e) => setC((v) => ({ ...v, tipo: e.target.value as Captura["tipo"] }))}>
+            <select className="campo" value={c.tipo} disabled={!!c.edicion} onChange={(e) => setC((v) => ({ ...v, tipo: e.target.value as Captura["tipo"] }))}>
               <option value="contado">Contado</option><option value="abono">Contado con abono</option><option value="credito">Crédito</option>
             </select>
           </label>
@@ -486,7 +579,8 @@ export default function CapturarVenta() {
                         <label title="Se entrega ahora (desmarca si se entrega después)" className="flex items-center gap-1 text-xs mx-1 cursor-pointer">
                           <input type="checkbox" checked={l.entregarAhora} onChange={(e) => editar(l.uid, { entregarAhora: e.target.checked })} /> Ent.
                         </label>
-                        <button aria-label="Quitar partida" title="Quitar partida" className="w-7 h-7 rounded-full text-white flex items-center justify-center"
+                        <button aria-label="Quitar partida" title={Number(l.entregada) > 0 ? "No se puede quitar: ya se entregó material" : "Quitar partida"}
+                          disabled={Number(l.entregada) > 0} className="w-7 h-7 rounded-full text-white flex items-center justify-center disabled:opacity-40"
                           style={{ background: "var(--peligro)" }} onClick={() => setC((v) => ({ ...v, lineas: v.lineas.filter((x) => x.uid !== l.uid) }))}>
                           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
                         </button>
@@ -530,10 +624,21 @@ export default function CapturarVenta() {
         <div className="barra-seccion mt-6">Pagos</div>
         <div className="grid gap-6 lg:grid-cols-[1fr_280px] mt-3">
           <div className="flex flex-col gap-3 text-sm">
-            {c.pagos.map((p, i) => (
+            {c.edicion && (
+              <div className="rounded px-3 py-2 bg-[var(--resalte)]">
+                Ya pagado: <b>{fmtImporte(pagadoPrevio)}</b>. Si el total sube, la diferencia queda como saldo y se cobra con <b>Registrar pago</b>.
+                Si baja de lo pagado, al guardar se pregunta si se devuelve o queda a favor.
+              </div>
+            )}
+            {!c.edicion && saldoFavor > 0 && (
+              <div className="rounded px-3 py-2 bg-emerald-50 text-emerald-900">
+                El cliente tiene <b>{fmtImporte(saldoFavor)}</b> de saldo a favor. Úsalo eligiendo la forma de pago “Saldo a favor”.
+              </div>
+            )}
+            {!c.edicion && c.pagos.map((p, i) => (
               <div key={i} className="grid grid-cols-[1fr_120px] sm:grid-cols-[180px_140px_1fr_auto] gap-2 items-center">
                 <select className="campo" value={p.forma} onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, forma: e.target.value as Forma } : x)) }))}>
-                  {Object.entries(FORMAS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+                  {Object.entries(FORMAS).filter(([k]) => k !== "saldo_favor" || saldoFavor > 0 || p.forma === k).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
                 </select>
                 <input className="campo" inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${fmtImporte(total)} (total)` : c.tipo === "abono" ? "Abono" : "Importe"} value={p.importe}
                   onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, importe: e.target.value } : x)) }))} />
@@ -544,10 +649,10 @@ export default function CapturarVenta() {
                 )}
               </div>
             ))}
-            <div className="flex gap-4">
+            {!c.edicion && <div className="flex gap-4">
               <button className="underline" onClick={() => setC((v) => ({ ...v, pagos: [...v.pagos, { forma: "tarjeta_debito", importe: faltaPagar.gt(0) ? faltaPagar.toFixed(2) : "", referencia: "" }] }))}>+ Agregar forma de pago</button>
               <button className="underline" onClick={() => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === 0 ? { ...x, importe: total.toFixed(2) } : x)) }))}>Pagar el total</button>
-            </div>
+            </div>}
             <label className="mt-2">Comentarios
               <textarea className="campo h-20" value={c.comentarios} onChange={(e) => setC((v) => ({ ...v, comentarios: e.target.value }))} />
             </label>
@@ -570,14 +675,23 @@ export default function CapturarVenta() {
                 </label>
               </dt><dd className="text-right">{fmtImporte(iva)}</dd>
               <dt className="font-semibold text-base">Total (MXN):</dt><dd className="text-right font-semibold text-base">{fmtImporte(total)}</dd>
+              {c.edicion ? <>
+                <dt className="mt-2">Ya pagado:</dt><dd className="text-right mt-2">{fmtImporte(pagadoPrevio)}</dd>
+                {total.gte(pagadoPrevio)
+                  ? <><dt>Saldo pendiente:</dt><dd className="text-right font-semibold">{fmtImporte(total.minus(pagadoPrevio))}</dd></>
+                  : <><dt>Pagado de más:</dt><dd className="text-right font-semibold text-amber-700">{fmtImporte(pagadoPrevio.minus(total))}</dd></>}
+              </> : <>
               <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(pagado)}</dd>
               {c.tipo === "contado"
                 ? <><dt>Cambio:</dt><dd className="text-right font-semibold">{fmtImporte(cambio)}</dd></>
                 : <><dt>{c.tipo === "abono" ? "Saldo pendiente:" : "Saldo a crédito:"}</dt><dd className="text-right font-semibold">{fmtImporte(faltaPagar)}</dd></>}
+              </>}
             </dl>
             <div className="flex justify-end gap-2 mt-4">
-              <button className="px-3 py-2 underline" onClick={() => { if (window.confirm("¿Descartar esta captura?")) setC(capturaNueva(c.sucursalId, c.almacenId, publico)); }}>Descartar</button>
-              <button className="btn-primario" title="F9" disabled={!puedeGuardar} onClick={guardar}>{guardando ? "Guardando…" : "Guardar"}</button>
+              {c.edicion
+                ? <button className="px-3 py-2 underline" onClick={() => router.push(`/ventas/${c.edicion!.ventaId}`)}>Cancelar edición</button>
+                : <button className="px-3 py-2 underline" onClick={() => { if (window.confirm("¿Descartar esta captura?")) setC(capturaNueva(c.sucursalId, c.almacenId, publico)); }}>Descartar</button>}
+              <button className="btn-primario" title="F9" disabled={!puedeGuardar} onClick={guardar}>{guardando ? "Guardando…" : c.edicion ? "Guardar cambios" : "Guardar"}</button>
             </div>
             {motivos.length > 0 && !guardando && (
               <ul className="text-xs text-[var(--peligro)] mt-2 text-right">
@@ -587,6 +701,35 @@ export default function CapturarVenta() {
           </div>
         </div>
       </section>
+
+      {diferencia && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3" onClick={() => setDiferencia(null)}>
+          <div role="dialog" aria-label="Pagado de más" className="bg-[var(--panel)] rounded-md shadow-lg w-full max-w-md p-5 text-sm" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold">El cliente pagó de más</h2>
+            <p className="mt-2">Con los cambios, la venta queda en <b>{fmtImporte(total)}</b> y ya había pagado <b>{fmtImporte(pagadoPrevio)}</b>.
+              ¿Qué se hace con la diferencia de <b>{fmtImporte(diferencia.exceso)}</b>?</p>
+            <label className="flex items-center gap-2 mt-3">
+              <input type="radio" checked={diferencia.opcion === "devolver"} onChange={() => setDiferencia({ ...diferencia, opcion: "devolver" })} /> Devolverle el dinero
+            </label>
+            {diferencia.opcion === "devolver" && (
+              <select className="campo mt-1 ml-6 !w-auto" value={diferencia.forma} onChange={(e) => setDiferencia({ ...diferencia, forma: e.target.value as Forma })}>
+                <option value="efectivo">En efectivo</option><option value="transferencia">Por transferencia</option>
+                <option value="tarjeta_debito">A tarjeta de débito</option><option value="tarjeta_credito">A tarjeta de crédito</option>
+              </select>
+            )}
+            <label className={`flex items-center gap-2 mt-2 ${!c.cliente || c.cliente.es_publico_general ? "opacity-50" : ""}`}>
+              <input type="radio" disabled={!c.cliente || c.cliente.es_publico_general} checked={diferencia.opcion === "saldo_favor"}
+                onChange={() => setDiferencia({ ...diferencia, opcion: "saldo_favor" })} /> Dejarlo como saldo a favor del cliente
+              {(!c.cliente || c.cliente.es_publico_general) && <span className="text-xs">(no aplica a Público en general)</span>}
+            </label>
+            <div className="flex justify-end gap-3 mt-5">
+              <button className="px-4 py-2 rounded border border-[var(--borde)]" onClick={() => setDiferencia(null)}>Volver</button>
+              <button className="btn-primario" disabled={guardando} onClick={() => guardarEdicion({ opcion: diferencia.opcion, forma: diferencia.forma })}>
+                {guardando ? "Guardando…" : "Guardar cambios"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {detalle && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3" onClick={() => setDetalle(null)}>

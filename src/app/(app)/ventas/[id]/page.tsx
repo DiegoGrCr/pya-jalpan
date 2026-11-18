@@ -25,7 +25,11 @@ export default function DetalleVenta() {
   const [trabajando, setTrabajando] = useState(false);
   const [ticket, setTicket] = useState<"ticket80" | "ticket58">("ticket80");
   const [menu, setMenu] = useState(false);
-  const [pestana, setPestana] = useState<"detalle" | "pagos">("detalle");
+  const [pestana, setPestana] = useState<"detalle" | "pagos" | "actividades">("detalle");
+  // Estado de cierre y ediciones (0027); si falta la migración se asume abierta y sin edición
+  const [cierre, setCierre] = useState<{ cerrada: boolean; ediciones: number; disponible: boolean }>({ cerrada: false, ediciones: 0, disponible: false });
+  const [historial, setHistorial] = useState<{ fecha: string; accion: string; usuario: string; detalle: Record<string, unknown> }[] | null>(null);
+  const [devoluciones, setDevoluciones] = useState<{ fecha: string; forma: string; importe: string }[]>([]);
   const [cancelacion, setCancelacion] = useState<{ motivo: string; detalle: string } | null>(null);
   const [pago, setPago] = useState<{ clave: string; forma: string; importe: string; referencia: string; comentarios: string } | null>(null);
 
@@ -38,8 +42,35 @@ export default function DetalleVenta() {
   }, [menu]);
 
   const recargar = useCallback(async () => {
-    try { setV(await cargarVenta(id)); } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setCargando(false); }
+    try {
+      setV(await cargarVenta(id));
+      const sb = supabase();
+      const [ex, dv] = await Promise.all([
+        sb.from("ventas").select("cerrada, ediciones").eq("id", id).maybeSingle(),
+        sb.from("venta_devoluciones").select("fecha, forma, importe").eq("venta_id", id).order("fecha"),
+      ]);
+      const d = ex.data as { cerrada: boolean; ediciones: number } | null;
+      setCierre(ex.error || !d ? { cerrada: false, ediciones: 0, disponible: false } : { ...d, disponible: true });
+      setDevoluciones(dv.error ? [] : (dv.data ?? []) as { fecha: string; forma: string; importe: string }[]);
+      setHistorial(null);
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setCargando(false); }
   }, [id]);
+
+  const cargarHistorial = async () => {
+    const { data, error } = await supabase().rpc("historial_venta", { p_venta: id });
+    setHistorial(error ? [] : (data ?? []) as { fecha: string; accion: string; usuario: string; detalle: Record<string, unknown> }[]);
+  };
+
+  const cerrarVenta = async () => {
+    if (!v || !window.confirm(`¿Cerrar la venta ${folioDe(v)}? Ya no se podrá editar (solo cancelar).`)) return;
+    setTrabajando(true);
+    try {
+      const { error } = await supabase().rpc("cerrar_venta", { p_venta: v.id });
+      if (error) throw error;
+      setMsg({ tipo: "ok", texto: `Venta ${folioDe(v)} cerrada.` });
+      await recargar();
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
+  };
 
   useEffect(() => { recargar(); }, [recargar]);
   // Los avisos de éxito desaparecen solos
@@ -52,6 +83,7 @@ export default function DetalleVenta() {
     try { const t = localStorage.getItem(CLAVE_TICKET); if (t === "ticket58" || t === "ticket80") setTicket(t); } catch { /* sin almacenamiento */ }
     const params = new URLSearchParams(window.location.search);
     const cambio = params.get("cambio");
+    if (params.get("editada")) setMsg({ tipo: "ok", texto: "Cambios guardados." });
     if (params.get("nueva")) setMsg({ tipo: "ok", texto: `Venta guardada.${cambio && Number(cambio) > 0 ? ` Cambio: ${mxn(cambio)}.` : ""}` });
   }, []);
 
@@ -197,6 +229,11 @@ export default function DetalleVenta() {
   const btn = "px-3 py-2 rounded border border-[var(--borde)] bg-[var(--panel)] hover:bg-[var(--resalte)] text-sm disabled:opacity-50";
   const formasPago = [...new Set(v.pagos.map((p) => FORMAS_PAGO[p.forma] ?? p.forma))].join(", ");
   const acciones: { texto: string; fn?: () => void; deshabilitado?: boolean; peligro?: boolean; nota?: string }[] = [
+    ...(!cancelada && !cierre.cerrada ? [
+      { texto: "Editar venta", fn: () => { window.location.href = `/ventas/capturar?editar=${v.id}`; }, deshabilitado: !cierre.disponible || !!v.factura_uuid,
+        nota: cierre.disponible ? undefined : "Falta ejecutar la migración 20261118000027_ventas_editables.sql" },
+      { texto: "Cerrar venta", fn: cerrarVenta, deshabilitado: !cierre.disponible },
+    ] : []),
     { texto: "Registrar pago", fn: () => setPago({ clave: crypto.randomUUID(), forma: "efectivo", importe: Number(v.saldo).toFixed(2), referencia: "", comentarios: "" }),
       deshabilitado: cancelada || !(Number(v.saldo) > 0), nota: Number(v.saldo) > 0 ? undefined : "La venta no tiene saldo pendiente" },
     { texto: "Imprimir ticket", fn: () => imprimir(ticket) },
@@ -260,10 +297,10 @@ export default function DetalleVenta() {
 
         {/* Pestañas */}
         <div className="flex gap-1 border-b border-[var(--borde)] px-4 pt-2">
-          {(["detalle", "pagos"] as const).map((t) => (
-            <button key={t} onClick={() => setPestana(t)}
+          {(["detalle", "pagos", "actividades"] as const).map((t) => (
+            <button key={t} onClick={() => { setPestana(t); if (t === "actividades" && historial === null) cargarHistorial(); }}
               className={`px-3 py-1.5 rounded-t border border-b-0 ${pestana === t ? "border-[var(--borde)] bg-[var(--panel)] font-semibold" : "border-transparent text-[var(--acento)]"}`}>
-              {t === "detalle" ? "Detalle" : <>Pagos <span className="ml-1 px-1.5 rounded-full text-xs text-white" style={{ background: "var(--acento)" }}>{v.pagos.length}</span></>}
+              {t === "detalle" ? "Detalle" : t === "actividades" ? "Actividades" : <>Pagos <span className="ml-1 px-1.5 rounded-full text-xs text-white" style={{ background: "var(--acento)" }}>{v.pagos.length}</span></>}
             </button>
           ))}
         </div>
@@ -289,7 +326,10 @@ export default function DetalleVenta() {
                   <div className="py-0.5"><span className="font-medium">Estatus:</span>{" "}
                     {cancelada
                       ? <span className="px-1.5 rounded text-xs text-white" style={{ background: "var(--peligro)" }}>Cancelada</span>
-                      : <span className="px-1.5 rounded text-xs bg-emerald-100 text-emerald-900">Activa</span>}
+                      : cierre.cerrada
+                        ? <span className="px-1.5 rounded text-xs bg-slate-200 text-slate-800">Cerrada</span>
+                        : <span className="px-1.5 rounded text-xs bg-emerald-100 text-emerald-900">Abierta</span>}
+                    {cierre.ediciones > 0 && <span className="ml-1 px-1.5 rounded text-xs bg-sky-100 text-sky-900">Editada {cierre.ediciones}×</span>}
                     {!cancelada && pendienteEntrega(v) && <span className="ml-1 px-1.5 rounded text-xs bg-amber-100 text-amber-900">Entrega pendiente</span>}
                     {v.factura_uuid && <span className="ml-1 px-1.5 rounded text-xs bg-sky-100 text-sky-900">Facturada</span>}
                   </div>
@@ -332,6 +372,22 @@ export default function DetalleVenta() {
                 </table>
               </div>
             </>
+          ) : pestana === "actividades" ? (
+            <div className="max-w-3xl">
+              {historial === null ? <div className="text-[var(--tenue)]">Cargando…</div>
+                : !historial.length ? <div className="text-[var(--tenue)]">Sin actividades registradas (o falta la migración 0027).</div>
+                : <ul className="flex flex-col gap-2">
+                    {historial.map((h, i) => {
+                      const d = h.detalle as { total?: string; exceso?: string; diferencia?: string; motivo?: string; forma?: string; importe?: string; antes?: { total?: string } };
+                      const texto = h.accion === "editar" ? `Editó la venta: total ${mxn(d.antes?.total ?? 0)} → ${mxn(d.total ?? 0)}${Number(d.exceso) > 0 ? ` · diferencia de ${mxn(d.exceso!)} ${d.diferencia === "saldo_favor" ? "dejada a favor del cliente" : "devuelta"}` : ""}`
+                        : h.accion === "cerrar" ? "Cerró la venta"
+                        : h.accion === "cancelar" ? `Canceló la venta${d.motivo ? `: ${d.motivo}` : ""}`
+                        : h.accion === "pago" ? `Registró un pago de ${mxn(d.importe ?? 0)} (${FORMAS_PAGO[d.forma ?? ""] ?? d.forma})`
+                        : h.accion === "insert" || h.accion === "crear" ? "Creó la venta" : h.accion;
+                      return <li key={i} className="border-b border-[var(--borde)] pb-2"><span className="text-[var(--tenue)]">{fechaMx(h.fecha)} · {h.usuario || "—"}</span><div>{texto}</div></li>;
+                    })}
+                  </ul>}
+            </div>
           ) : (
             <table className="w-full max-w-2xl">
               <thead style={{ color: "var(--acento)" }}>
@@ -342,7 +398,13 @@ export default function DetalleVenta() {
                   <tr key={i} className="border-b border-[var(--borde)]">
                     <td className="py-1.5 pr-3 whitespace-nowrap">{p.fecha ? fechaMx(p.fecha) : ""}</td><td className="pr-3">{FORMAS_PAGO[p.forma] ?? p.forma}</td><td className="pr-3">{p.referencia ?? ""}</td><td className="text-right">{fmtImporte(p.importe)}</td>
                   </tr>
-                )) : <tr><td colSpan={4} className="py-3 text-[var(--tenue)]">Sin pagos registrados{v.tipo === "credito" ? " (venta a crédito)" : ""}.</td></tr>}
+                )) : null}
+                {devoluciones.map((d, i) => (
+                  <tr key={`d${i}`} className="border-b border-[var(--borde)] text-[var(--peligro)]">
+                    <td className="py-1.5 pr-3 whitespace-nowrap">{fechaMx(d.fecha)}</td><td className="pr-3">Devolución · {FORMAS_PAGO[d.forma] ?? d.forma}</td><td className="pr-3">Por edición de la venta</td><td className="text-right">−{fmtImporte(d.importe)}</td>
+                  </tr>
+                ))}
+                {!v.pagos.length && !devoluciones.length ? <tr><td colSpan={4} className="py-3 text-[var(--tenue)]">Sin pagos registrados{v.tipo === "credito" ? " (venta a crédito)" : ""}.</td></tr> : null}
               </tbody>
             </table>
           )}
