@@ -143,8 +143,8 @@ export default function CapturarVenta() {
           if (t) q = q.or(`sku.ilike.%${t}%,nombre.ilike.%${t}%,codigo_barras.eq.${t}`);
           return q;
         };
-        let { data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja");
-        if (error && /presentacion|m2_por_caja|piezas_por_caja/.test(error.message)) ({ data, error } = await consulta("")); // falta la migración 0015
+        let { data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja, formato");
+        if (error && /presentacion|m2_por_caja|piezas_por_caja|formato/.test(error.message)) ({ data, error } = await consulta("")); // falta la migración 0015
         if (error) throw error;
         setResultados(((data ?? []) as unknown as FilaProducto[]).map(({ unidades_venta, ...p }) => ({
           ...p, unidades: [...unidades_venta].sort((a, b) => a.orden - b.orden).map((u) => ({ ...u, precio: precioDe(u) })),
@@ -423,7 +423,7 @@ export default function CapturarVenta() {
                       </select>
                     </td>
                     <td className="py-2">
-                      {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja)}
+                      {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja, l.producto.formato)}
                       <button className="ml-2 text-xs px-1 border rounded border-[var(--acento)] text-[var(--acento)]" title="Ver detalle y existencia por almacén"
                         aria-label="Ver detalle del producto" onClick={() => verDetalle(l.producto)}>👁</button>
                       {l.producto.tipo === "producto" && exU && (
@@ -500,7 +500,7 @@ export default function CapturarVenta() {
                     <li key={p.id} onClick={() => agregar(p)}
                       className="px-3 py-2 cursor-pointer text-sm hover:bg-[var(--resalte)]"
                       style={i === 0 ? { background: "var(--acento)", color: "white" } : undefined}>
-                      {p.sku} - {nombreConCaja(p.nombre, p.m2_por_caja)}
+                      {p.sku} - {nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}
                     </li>
                   ))}
                 </ul>
@@ -580,7 +580,7 @@ export default function CapturarVenta() {
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3" onClick={() => setDetalle(null)}>
           <div role="dialog" aria-label="Detalle del producto" className="bg-[var(--panel)] rounded-md shadow-lg w-full max-w-xl p-5 text-sm" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-start gap-3">
-              <h2 className="text-lg font-semibold">{detalle.producto.sku} · {nombreConCaja(detalle.producto.nombre, detalle.producto.m2_por_caja)}</h2>
+              <h2 className="text-lg font-semibold">{detalle.producto.sku} · {nombreConCaja(detalle.producto.nombre, detalle.producto.m2_por_caja, detalle.producto.formato)}</h2>
               <button aria-label="Cerrar" className="text-[var(--peligro)] text-lg" onClick={() => setDetalle(null)}>✕</button>
             </div>
             <div className="text-[var(--tenue)] mt-1">

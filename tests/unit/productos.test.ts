@@ -103,5 +103,7 @@ describe("Nombre con m² por caja", () => {
     expect(nombreConCaja("30X60 Sandstone White", "1.26")).toBe("30X60 Sandstone White 1.26");
     expect(nombreConCaja("30X60 Sandstone White 1.26", "1.260000")).toBe("30X60 Sandstone White 1.26");
     expect(nombreConCaja("Adhesivo", null)).toBe("Adhesivo");
+    expect(nombreConCaja("Sandstone White 2Da", "1.26", "30x60")).toBe("30X60 Sandstone White 2Da 1.26");
+    expect(nombreConCaja("30X60 Sandstone White 2Da 1.26", "1.26", "30x60")).toBe("30X60 Sandstone White 2Da 1.26");
   });
 });

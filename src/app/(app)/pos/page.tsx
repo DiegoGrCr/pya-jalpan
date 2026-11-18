@@ -100,7 +100,7 @@ export default function PuntoDeVenta() {
     if (!ctx || texto.trim().length < 2) { setResultados([]); return; }
     try {
       const t = texto.trim().replace(/[%,()]/g, "");
-      const sel = "id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, codigo_barras, presentacion, m2_por_caja, piezas_por_caja, unidades_venta(id, nombre, factor, es_base, codigo_barras, orden, precios(precio, lista_id))";
+      const sel = "id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, codigo_barras, presentacion, m2_por_caja, piezas_por_caja, formato, unidades_venta(id, nombre, factor, es_base, codigo_barras, orden, precios(precio, lista_id))";
       const { data, error } = await supabase().from("productos").select(sel).eq("activo", true)
         .or(`sku.ilike.%${t}%,nombre.ilike.%${t}%,codigo_barras.eq.${t}`).limit(15);
       if (error) throw error;
@@ -229,7 +229,7 @@ export default function PuntoDeVenta() {
           <ul className="absolute z-10 mt-1 w-full rounded-md border bg-[var(--panel)] shadow max-h-80 overflow-auto">
             {resultados.map((p) => (
               <li key={p.id} className="px-3 py-2 hover:bg-[var(--resalte)] cursor-pointer flex justify-between" onClick={() => agregar(p)}>
-                <span><b>{p.sku}</b> · {nombreConCaja(p.nombre, p.m2_por_caja)}</span>
+                <span><b>{p.sku}</b> · {nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}</span>
                 <span className="text-sm opacity-80">
                   Exist.: {fmtCantidad(existencias[p.id] ?? 0)} {p.unidad_base}
                 </span>
@@ -253,7 +253,7 @@ export default function PuntoDeVenta() {
               return (
                 <tr key={l.uid} className="border-t">
                   <td className="py-2">
-                    {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja)}
+                    {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja, l.producto.formato)}
                     {sinExistencia && <div className="text-xs text-red-600">Sin existencia suficiente: se venderá con aviso</div>}
                   </td>
                   <td>

@@ -20,6 +20,7 @@ export interface PartidaDoc {
   /** Pisos (inventario en piezas): m² por pieza para mostrar la equivalencia en m² */
   m2_por_pieza?: number | null;
   m2_por_caja?: string | null;
+  formato?: string | null;
   /** Comentario del renglón (migración 0020) */
   comentario?: string | null;
 }
@@ -54,11 +55,11 @@ export const pendienteEntrega = (v: VentaDoc) => v.partidas.some((p) => Number(p
 
 interface FilaVenta extends Omit<VentaDoc, "sucursal" | "almacen" | "cliente" | "empresa" | "partidas" | "pagos"> {
   sucursales: VentaDoc["sucursal"]; almacenes: { nombre: string }; clientes: VentaDoc["cliente"];
-  venta_partidas: (Omit<PartidaDoc, "sku" | "nombre" | "unidad" | "unidad_base"> & { unidad_nombre: string; productos: { sku: string; nombre: string; unidad_base: string; m2_por_caja?: string | null; piezas_por_caja?: number | null } })[];
+  venta_partidas: (Omit<PartidaDoc, "sku" | "nombre" | "unidad" | "unidad_base"> & { unidad_nombre: string; productos: { sku: string; nombre: string; unidad_base: string; m2_por_caja?: string | null; piezas_por_caja?: number | null; formato?: string | null } })[];
   venta_pagos: PagoDoc[];
 }
 
-const PROD = "sku, nombre, unidad_base, m2_por_caja, piezas_por_caja", PROD_BASICO = "sku, nombre, unidad_base";
+const PROD = "sku, nombre, unidad_base, m2_por_caja, piezas_por_caja, formato", PROD_BASICO = "sku, nombre, unidad_base";
 const consultaVenta = (sucursal: string, prod = PROD) => `id, serie, folio, fecha, tipo, estado, subtotal, descuento, ieps, iva, total, pagado, saldo, cambio,
   vencimiento, comentarios, motivo_cancelacion, factura_uuid,
   sucursales(${sucursal}), almacenes(nombre),
@@ -113,6 +114,7 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
       ...p, sku: productos.sku, nombre: productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
       m2_por_pieza: productos.m2_por_caja && productos.piezas_por_caja ? Number(productos.m2_por_caja) / productos.piezas_por_caja : null,
       m2_por_caja: productos.m2_por_caja ?? null,
+      formato: productos.formato ?? null,
       comentario: comentarioDe(p.renglon),
     })),
     pagos: venta_pagos,
@@ -224,8 +226,8 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
     head: [["Cód.", "Cant.", "Unidad.", "Descripción", "Precio\nUnitario", "Importe"]],
     body: imp.filas.map(({ p, precio, importe }) => [
       p.sku, n4(p.cantidad), p.unidad,
-      [p.m2_por_pieza ? nombreConCaja(p.nombre, p.m2_por_caja)   // pisos: m² que trae la caja, como en las notas
-        : p.unidad !== p.unidad_base ? `${p.nombre} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : p.nombre,
+      [p.m2_por_pieza ? nombreConCaja(p.nombre, p.m2_por_caja, p.formato)   // pisos: m² que trae la caja, como en las notas
+        : p.unidad !== p.unidad_base ? `${nombreConCaja(p.nombre, null, p.formato)} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : nombreConCaja(p.nombre, null, p.formato),
         ...(p.comentario ? [p.comentario] : []),
         " "].join("\n"), // el último renglón se reserva para la línea de impuesto (letra chica)
       nP(precio), n4(importe),
@@ -366,7 +368,7 @@ function pdfTicket(JsPDF: typeof import("jspdf").jsPDF, v: VentaDoc, ancho: 58 |
     if (v.estado === "cancelada") centro("*** CANCELADA ***", true, fs + 2);
     y += 1; raya();
     for (const f of imp.filas) {
-      fila(`${f.p.sku} ${nombreConCaja(f.p.nombre, f.p.m2_por_caja)}`, "");
+      fila(`${f.p.sku} ${nombreConCaja(f.p.nombre, f.p.m2_por_caja, f.p.formato)}`, "");
       if (f.p.comentario) fila(`  ${f.p.comentario}`, "");
       fila(`  ${fmtCantidad(f.p.cantidad, 4)} ${f.p.unidad} x ${n2(f.precio)}`, n2(f.importe));
     }

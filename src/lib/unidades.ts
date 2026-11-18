@@ -29,6 +29,7 @@ export interface ProductoVenta {
   presentacion?: "piso" | "unidad";
   m2_por_caja?: string | null;
   piezas_por_caja?: number | null;
+  formato?: string | null;
 }
 
 /** Unidad en que se muestra la medida: pisos en m² (desde piezas), lo demás en su unidad base. */
@@ -124,9 +125,15 @@ export const mxn = (v: Decimal.Value) =>
 export const mxnPrecio = (v: Decimal.Value) =>
   D(v).toNumber().toLocaleString("es-MX", { style: "currency", currency: "MXN", minimumFractionDigits: 2, maximumFractionDigits: 6 });
 
-/** Pisos: nombre seguido de los m² que trae la caja ("Sandstone White 1.26"), salvo que el nombre ya los traiga. */
-export function nombreConCaja(nombre: string, m2PorCaja?: string | number | null): string {
-  if (!m2PorCaja || !(Number(m2PorCaja) > 0)) return nombre;
+/**
+ * Nombre como en las notas: formato + nombre + m² que trae la caja ("30X60 Sandstone White 2Da 1.26").
+ * No repite el formato ni los m² si el nombre ya los trae.
+ */
+export function nombreConCaja(nombre: string, m2PorCaja?: string | number | null, formato?: string | null): string {
+  let n = nombre;
+  const f = (formato ?? "").trim();
+  if (f && !n.toLowerCase().replace(/\s+/g, "").includes(f.toLowerCase().replace(/\s+/g, ""))) n = `${f.toUpperCase()} ${n}`;
+  if (!m2PorCaja || !(Number(m2PorCaja) > 0)) return n;
   const m2 = fmtCantidad(m2PorCaja, 4).replace(/,/g, "");
-  return nombre.split(/\s+/).includes(m2) ? nombre : `${nombre} ${m2}`;
+  return n.split(/\s+/).includes(m2) ? n : `${n} ${m2}`;
 }
