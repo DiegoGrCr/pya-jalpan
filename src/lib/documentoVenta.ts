@@ -20,6 +20,8 @@ export interface PartidaDoc {
   /** Pisos (inventario en piezas): m² por pieza para mostrar la equivalencia en m² */
   m2_por_pieza?: number | null;
   m2_por_caja?: string | null;
+  /** Comentario del renglón (migración 0020) */
+  comentario?: string | null;
 }
 export interface PagoDoc { forma: string; importe: string; referencia: string | null }
 export interface EmpresaDoc {
@@ -30,6 +32,7 @@ export interface VentaDoc {
   id: string; serie: string; folio: number; fecha: string; tipo: "contado" | "credito"; estado: "confirmada" | "cancelada";
   subtotal: string; descuento: string; ieps: string; iva: string; total: string; pagado: string; saldo: string; cambio: string;
   vencimiento: string | null; comentarios: string | null; motivo_cancelacion: string | null; factura_uuid: string | null;
+  orden_compra?: string | null;
   sucursal: { codigo: string; nombre: string; cp_expedicion: string | null; direccion: string | null; telefono: string | null; lugar_expedicion: string | null };
   almacen: string;
   cliente: { nombre: string; razon_social: string | null; rfc: string | null; correo_facturas: string | null; telefono: string | null; es_publico_general: boolean };
@@ -99,13 +102,18 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
   if (!v.data) return null;
   const f = v.data as unknown as FilaVenta;
   const { sucursales, almacenes, clientes, venta_partidas, venta_pagos, ...resto } = f;
+  // Orden de compra y comentarios por renglón (0020); si falta la migración se omiten
+  const extra = await sb.from("ventas").select("orden_compra, venta_partidas(renglon, comentario)").eq("id", id).maybeSingle();
+  const ext = extra.error ? null : extra.data as { orden_compra: string | null; venta_partidas: { renglon: number; comentario: string | null }[] } | null;
+  const comentarioDe = (r: number) => ext?.venta_partidas.find((x) => x.renglon === r)?.comentario ?? null;
   return {
-    ...resto, sucursal: sucursales, almacen: almacenes?.nombre ?? "", cliente: clientes,
+    ...resto, orden_compra: ext?.orden_compra ?? null, sucursal: sucursales, almacen: almacenes?.nombre ?? "", cliente: clientes,
     empresa,
     partidas: [...venta_partidas].sort((a, b) => a.renglon - b.renglon).map(({ productos, unidad_nombre, ...p }) => ({
       ...p, sku: productos.sku, nombre: productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
       m2_por_pieza: productos.m2_por_caja && productos.piezas_por_caja ? Number(productos.m2_por_caja) / productos.piezas_por_caja : null,
       m2_por_caja: productos.m2_por_caja ?? null,
+      comentario: comentarioDe(p.renglon),
     })),
     pagos: venta_pagos,
   };
@@ -202,8 +210,9 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
     ["Almacén:", v.almacen],
   ];
   if (v.tipo === "credito") datos.splice(2, 0, ["Condición de pago:", "Crédito"]);
+  if (v.orden_compra) datos.push(["Orden de compra:", v.orden_compra]);
   datos.forEach(([k, val], i) => {
-    const yy = y + 5.5 + i * (datos.length > 4 ? 4.3 : 5);
+    const yy = y + 5.5 + i * (datos.length > 5 ? 3.6 : datos.length > 4 ? 4.3 : 5);
     doc.setFont("helvetica", "bold").text(k, mitad + 2, yy);
     doc.setFont("helvetica", "normal").text(val, W - M - 2, yy, { align: "right" });
   });
@@ -217,6 +226,7 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
       p.sku, n4(p.cantidad), p.unidad,
       [p.m2_por_pieza ? nombreConCaja(p.nombre, p.m2_por_caja)   // pisos: m² que trae la caja, como en las notas
         : p.unidad !== p.unidad_base ? `${p.nombre} (${fmtCantidad(p.cantidad_base, 4)} ${p.unidad_base})` : p.nombre,
+        ...(p.comentario ? [p.comentario] : []),
         " "].join("\n"), // el último renglón se reserva para la línea de impuesto (letra chica)
       nP(precio), n4(importe),
     ]),
@@ -357,6 +367,7 @@ function pdfTicket(JsPDF: typeof import("jspdf").jsPDF, v: VentaDoc, ancho: 58 |
     y += 1; raya();
     for (const f of imp.filas) {
       fila(`${f.p.sku} ${nombreConCaja(f.p.nombre, f.p.m2_por_caja)}`, "");
+      if (f.p.comentario) fila(`  ${f.p.comentario}`, "");
       fila(`  ${fmtCantidad(f.p.cantidad, 4)} ${f.p.unidad} x ${n2(f.precio)}`, n2(f.importe));
     }
     raya();
