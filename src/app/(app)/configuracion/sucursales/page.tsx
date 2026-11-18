@@ -9,6 +9,7 @@ interface Almacen { id: string; nombre: string; multisucursal: boolean; activo: 
 interface Sucursal {
   id: string; codigo: string; nombre: string; cp_expedicion: string | null; activa: boolean; almacenes: Almacen[];
   series: { tipo_documento: string; prefijo: string; siguiente: number; activa: boolean }[];
+  almacen_predeterminado_id?: string | null;
 }
 
 interface UsuarioSuc { user_id: string; usuario: string | null; nombre: string; activo: boolean; usuario_sucursales: { sucursal_id: string }[] }
@@ -38,12 +39,16 @@ export default function Sucursales() {
   const cargar = useCallback(async () => {
     try {
       const sb = supabase();
-      const [{ data, error }, perm, us, prop] = await Promise.all([
-        sb.from("sucursales").select("id, codigo, nombre, cp_expedicion, activa, almacenes(id, nombre, multisucursal, activo), series(tipo_documento, prefijo, siguiente, activa)").order("codigo"),
+      const consulta = (extra: string) => sb.from("sucursales")
+        .select(`id, codigo, nombre, cp_expedicion, activa, almacenes(id, nombre, multisucursal, activo), series(tipo_documento, prefijo, siguiente, activa)${extra}`).order("codigo");
+      const [primera, perm, us, prop] = await Promise.all([
+        consulta(", almacen_predeterminado_id"),
         sb.rpc("tiene_permiso", { p_permiso: "administrar" }),
         sb.from("perfiles").select("user_id, usuario, nombre, activo, usuario_sucursales(sucursal_id)").order("nombre"),
         sb.rpc("es_propietario"),
       ]);
+      // Compatibilidad: sin la migración 0029 no existe almacen_predeterminado_id
+      const { data, error } = primera.error ? await consulta("") : primera;
       if (error) throw error;
       setLista((data ?? []) as Sucursal[]);
       setAdmin(perm.data === true);
@@ -102,6 +107,35 @@ export default function Sucursales() {
       if (error) throw error;
       await cargar();
     } catch (err) { setMsg({ tipo: "error", texto: mensajeError(err) }); }
+  };
+
+  const accionAlmacen = async (fn: () => PromiseLike<{ error: { message: string } | null }>, ok: string) => {
+    setMsg(null);
+    try {
+      const { error } = await fn();
+      if (error) {
+        if (/almacen_predeterminado|actualizar_almacen|eliminar_almacen/.test(error.message) && /function|función/.test(error.message))
+          throw new Error("Falta ejecutar la migración 20261118000029_almacenes_admin.sql en Supabase.");
+        throw error;
+      }
+      setMsg({ tipo: "ok", texto: ok });
+      await cargar();
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); }
+  };
+  const predeterminado = (s: Sucursal, a: Almacen) =>
+    accionAlmacen(() => supabase().rpc("almacen_predeterminado", { p: { sucursal_id: s.id, almacen_id: a.id } }), `${a.nombre} es ahora el almacén predeterminado de ${s.nombre}.`);
+  const renombrar = (a: Almacen) => {
+    const nombre = window.prompt("Nuevo nombre del almacén", a.nombre);
+    if (!nombre || nombre.trim() === a.nombre) return;
+    accionAlmacen(() => supabase().rpc("actualizar_almacen", { p: { id: a.id, nombre: nombre.trim() } }), "Almacén renombrado.");
+  };
+  const alternarAlmacen = (a: Almacen) => {
+    if (a.activo && !window.confirm(`¿Desactivar ${a.nombre}? Ya no aparecerá para vender ni mover inventario.`)) return;
+    accionAlmacen(() => supabase().rpc("actualizar_almacen", { p: { id: a.id, activo: !a.activo } }), a.activo ? "Almacén desactivado." : "Almacén activado.");
+  };
+  const eliminarAlmacen = (a: Almacen) => {
+    if (!window.confirm(`¿Eliminar ${a.nombre}? Solo se puede si nunca se usó. No se puede deshacer.`)) return;
+    accionAlmacen(() => supabase().rpc("eliminar_almacen", { p_id: a.id }), "Almacén eliminado.");
   };
 
   const alternarActiva = async (s: Sucursal) => {
@@ -183,7 +217,25 @@ export default function Sucursales() {
                   )}
                 </td>
                 <td className="py-2">
-                  {s.almacenes.map((a) => <div key={a.id}>{a.nombre}{a.multisucursal ? " (multisucursal)" : ""}</div>)}
+                  {[...s.almacenes].sort((a, b) => Number(b.activo) - Number(a.activo) || a.nombre.localeCompare(b.nombre)).map((a) => {
+                    const pred = s.almacen_predeterminado_id === a.id;
+                    return (
+                      <div key={a.id} className="mb-1" style={a.activo ? undefined : { opacity: 0.5 }}>
+                        <div>
+                          {a.nombre}{a.multisucursal ? " (multisucursal)" : ""}{!a.activo ? " (inactivo)" : ""}
+                          {pred && <span className="ml-1 px-1.5 rounded text-xs bg-emerald-100 text-emerald-900">predeterminado</span>}
+                        </div>
+                        {propietario && (
+                          <div className="flex flex-wrap gap-x-2 text-xs">
+                            {a.activo && !pred && s.almacen_predeterminado_id !== undefined && <button className="underline" onClick={() => predeterminado(s, a)}>Hacer predeterminado</button>}
+                            <button className="underline" onClick={() => renombrar(a)}>Renombrar</button>
+                            {!pred && <button className="underline" onClick={() => alternarAlmacen(a)}>{a.activo ? "Desactivar" : "Activar"}</button>}
+                            {!pred && <button className="underline text-[var(--peligro)]" onClick={() => eliminarAlmacen(a)}>Eliminar</button>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                   {propietario && <button onClick={() => agregarAlmacen(s)} className="text-xs underline">+ Agregar almacén</button>}
                 </td>
                 <td className="py-2">

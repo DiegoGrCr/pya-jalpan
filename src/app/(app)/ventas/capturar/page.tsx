@@ -30,7 +30,7 @@ interface Linea {
 interface Pago { forma: Forma; importe: string; referencia: string }
 interface Cliente { id: string; nombre: string; rfc: string | null; es_publico_general: boolean; lista_precios_id: string | null; limite_credito: string; dias_credito: number }
 interface Almacen { id: string; nombre: string; sucursal_id: string; multisucursal: boolean }
-interface Sucursal { id: string; codigo: string; nombre: string; cp_expedicion: string | null; direccion?: string | null; telefono?: string | null }
+interface Sucursal { id: string; codigo: string; nombre: string; cp_expedicion: string | null; direccion?: string | null; telefono?: string | null; almacen_predeterminado_id?: string | null }
 interface Captura {
   clave: string; sucursalId: string; almacenId: string; cliente: Cliente | null; tipo: "contado" | "credito" | "abono"; lineas: Linea[]; pagos: Pago[]; comentarios: string; sinIva?: boolean;
   ordenCompra?: string; descGlobalTipo?: TipoDesc; descGlobalValor?: string;
@@ -83,7 +83,8 @@ export default function CapturarVenta() {
         const sb = supabase();
         const { data: { user } } = await sb.auth.getUser();
         cargarEmpresa().then(setEmpresa).catch(() => { /* el encabezado es informativo */ });
-        let suc = await sb.from("usuario_sucursales").select("sucursales(id, codigo, nombre, cp_expedicion, direccion, telefono)").eq("user_id", user!.id);
+        let suc = await sb.from("usuario_sucursales").select("sucursales(id, codigo, nombre, cp_expedicion, direccion, telefono, almacen_predeterminado_id)").eq("user_id", user!.id);
+        if (suc.error) suc = await sb.from("usuario_sucursales").select("sucursales(id, codigo, nombre, cp_expedicion, direccion, telefono)").eq("user_id", user!.id);
         if (suc.error) suc = await sb.from("usuario_sucursales").select("sucursales(id, codigo, nombre, cp_expedicion)").eq("user_id", user!.id);
         const [alm, pub, lp] = await Promise.all([
           sb.from("almacenes").select("id, nombre, sucursal_id, multisucursal").eq("activo", true).order("nombre"),
@@ -105,7 +106,7 @@ export default function CapturarVenta() {
         if (guardada && guardada.lineas.length) setC(guardada);
         else {
           const s0 = sucs[0]?.id ?? "";
-          const a0 = ((alm.data ?? []) as Almacen[]).find((a) => a.sucursal_id === s0)?.id ?? "";
+          const a0 = sucs[0]?.almacen_predeterminado_id ?? ((alm.data ?? []) as Almacen[]).find((a) => a.sucursal_id === s0)?.id ?? "";
           setC(capturaNueva(s0, a0, pub.data as Cliente));
         }
       } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); }
@@ -494,7 +495,7 @@ export default function CapturarVenta() {
         <div className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-5 text-sm">
           <label>Sucursal:
             <select className="campo" value={c.sucursalId} disabled={!!c.edicion} onChange={(e) => {
-              const a = almacenes.find((x) => x.sucursal_id === e.target.value)?.id ?? "";
+              const a = sucursales.find((x) => x.id === e.target.value)?.almacen_predeterminado_id ?? almacenes.find((x) => x.sucursal_id === e.target.value)?.id ?? "";
               setC((v) => ({ ...v, sucursalId: e.target.value, almacenId: a }));
             }}>
               {sucursales.map((s) => <option key={s.id} value={s.id}>{s.codigo} - {s.nombre}</option>)}
