@@ -1,6 +1,7 @@
 "use client";
 /** Configuración > Usuarios: alta de usuarios (p. ej. uno por sucursal), rol, sucursales, contraseña y estado. */
 import { useCallback, useEffect, useState } from "react";
+import { TEMAS, aplicarTema } from "@/lib/temas";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { ROLES, Rol, USUARIO_VALIDO } from "@/lib/usuarios";
 
@@ -27,10 +28,13 @@ export default function Usuarios() {
   const [edicion, setEdicion] = useState<{ nombre: string; rol: Rol; sucursales: string[] }>({ nombre: "", rol: "cajero", sucursales: [] });
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [trabajando, setTrabajando] = useState(false);
+  const [temas, setTemas] = useState<Record<string, string | null> | null>(null);   // null = falta la migración 0036
 
   const cargar = useCallback(async () => {
     try {
       const sb = supabase();
+      sb.from("perfiles").select("user_id, tema").then(({ data, error }: { data: unknown; error: unknown }) =>
+        setTemas(error ? null : Object.fromEntries(((data ?? []) as { user_id: string; tema: string | null }[]).map((x) => [x.user_id, x.tema]))));
       const [u, s, a, sesion, prop] = await Promise.all([
         sb.from("perfiles").select("user_id, nombre, rol, activo, usuario, propietario, usuario_sucursales(sucursal_id)").order("nombre"),
         sb.from("sucursales").select("id, codigo, nombre, activa").order("codigo"),
@@ -139,7 +143,7 @@ export default function Usuarios() {
         <table className="w-full text-sm min-w-[760px]">
           <thead style={{ color: "var(--acento)" }}>
             <tr className="text-left"><th className="py-1 font-normal">Usuario</th><th className="font-normal">Nombre</th><th className="font-normal">Rol</th>
-              <th className="font-normal">Sucursales</th><th className="font-normal">Estado</th><th></th></tr>
+              <th className="font-normal">Sucursales</th><th className="font-normal">Estado</th><th className="font-normal">Color</th><th></th></tr>
           </thead>
           <tbody>
             {usuarios.map((u) => {
@@ -158,6 +162,7 @@ export default function Usuarios() {
                   </td>
                   <td className="py-2">{casillas(edicion.sucursales, (v) => setEdicion({ ...edicion, sucursales: v }))}</td>
                   <td className="py-2">{u.activo ? "Activo" : "Inactivo"}</td>
+                  <td />
                   <td className="py-2 text-right whitespace-nowrap">
                     <button className="underline mr-3" onClick={() => setEditando(null)}>Cancelar</button>
                     <button className="btn-primario" disabled={trabajando} onClick={() => guardarEdicion(u)}>Guardar</button>
@@ -171,6 +176,22 @@ export default function Usuarios() {
                   <td className="py-2">{ROLES[u.rol] ?? u.rol}</td>
                   <td className="py-2">{u.rol === "administrador" && !sus.length ? "Todas" : sus.map(nombreSuc).join(", ") || "—"}</td>
                   <td className="py-2">{u.activo ? "Activo" : "Inactivo"}</td>
+                  <td className="py-1">
+                    {temas && admin ? (
+                      <select className="campo !py-1 !w-auto text-xs" value={temas[u.user_id] ?? ""} aria-label={`Color de interfaz de ${u.nombre}`}
+                        onChange={async (e) => {
+                          const tema = e.target.value;
+                          const { error } = await supabase().rpc("cambiar_tema_usuario", { p: { user_id: u.user_id, tema } });
+                          if (error) { setMsg({ tipo: "error", texto: mensajeError(error) }); return; }
+                          setTemas({ ...temas, [u.user_id]: tema || null });
+                          if (esYo) aplicarTema(tema);
+                          setMsg({ tipo: "ok", texto: `Color de ${u.nombre}: ${TEMAS[tema || "verde"].nombre}. Se ve al volver a entrar.` });
+                        }}>
+                        <option value="">{TEMAS.verde.nombre}</option>
+                        {Object.entries(TEMAS).filter(([k]) => k !== "verde").map(([k, t]) => <option key={k} value={k}>{t.nombre}</option>)}
+                      </select>
+                    ) : <span className="text-xs text-[var(--tenue)]">{temas ? TEMAS[temas[u.user_id] ?? "verde"]?.nombre : "—"}</span>}
+                  </td>
                   <td className="py-2 text-right whitespace-nowrap">
                     {editable && <>
                     <button className="underline mr-3" onClick={() => { setEditando(u.user_id); setEdicion({ nombre: u.nombre, rol: u.rol, sucursales: sus }); }}>Editar</button>

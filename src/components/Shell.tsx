@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { aplicarTema } from "@/lib/temas";
 import { supabase } from "@/lib/supabase/client";
 
 interface Item { texto: string; href: string }
@@ -78,6 +79,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       if (!user) return;
       const { data } = await sb.from("perfiles").select("nombre").eq("user_id", user.id).maybeSingle();
       setUsuario(data?.nombre ?? user.email ?? "");
+      // Color de interfaz del usuario (0036); si falta la migración se queda el normal
+      const tema = await sb.from("perfiles").select("tema").eq("user_id", user.id).maybeSingle();
+      if (!tema.error) aplicarTema((tema.data as { tema: string | null } | null)?.tema);
     })();
   }, []);
 
