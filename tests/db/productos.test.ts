@@ -117,3 +117,11 @@ describe("productos sin descripción", () => {
     expect(p.nombre).toBe(`Marca Nombre 33x33 ${r.sku}`);
   });
 });
+
+describe("categoría de pisos (0035)", () => {
+  it("un piso sin categoría queda en Pisos", async () => {
+    const r = await rpc(s.admin, "guardar_producto", piso({ nombre: "Piso Sin Categoría Ejemplo", categoria: null }));
+    const [p] = await q(`select c.nombre from productos pr join categorias c on c.id = pr.categoria_id where pr.id = $1`, [r.producto_id]);
+    expect(p.nombre).toBe("Pisos");
+  });
+});
