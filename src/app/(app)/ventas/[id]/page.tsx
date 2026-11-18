@@ -39,6 +39,12 @@ export default function DetalleVenta() {
   }, [id]);
 
   useEffect(() => { recargar(); }, [recargar]);
+  // Los avisos de éxito desaparecen solos
+  useEffect(() => {
+    if (msg?.tipo !== "ok") return;
+    const t = setTimeout(() => setMsg(null), /Cambio/.test(msg.texto) ? 10000 : 3500); // el cambio se deja más tiempo a la vista
+    return () => clearTimeout(t);
+  }, [msg]);
   useEffect(() => {
     try { const t = localStorage.getItem(CLAVE_TICKET); if (t === "ticket58" || t === "ticket80") setTicket(t); } catch { /* sin almacenamiento */ }
     const params = new URLSearchParams(window.location.search);
@@ -147,7 +153,10 @@ export default function DetalleVenta() {
   return (
     <div className="p-3 sm:p-5">
       {msg && (
-        <div role="alert" className={`mb-3 rounded px-4 py-2 ${msg.tipo === "ok" ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"}`}>{msg.texto}</div>
+        msg.tipo === "ok"
+          // Aviso discreto: esquina inferior derecha y se quita solo
+          ? <div role="status" className="fixed bottom-4 right-4 z-50 rounded-md px-4 py-2 text-sm shadow-lg bg-emerald-600 text-white">✓ {msg.texto}</div>
+          : <div role="alert" className="mb-3 rounded px-4 py-2 bg-amber-100 text-amber-900">{msg.texto}</div>
       )}
 
       {/* Accesos rápidos */}
