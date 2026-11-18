@@ -60,10 +60,10 @@ describe("Inventario y ventas", () => {
       { producto_id: s.piso.id, unidad_venta_id: s.piso.pieza, cantidad: 7, precio_unitario: 90 },
     ], [{ forma: "efectivo", importe: 2000 }]));
     expect(await stock(s.piso.id, s.almA)).toBeCloseTo(antes - (4.32 + 2.52), 6);
-    // El cajero no tiene permiso de cancelar; el administrador sí
-    await expect(asUser(s.cajeroA, (c) => c.query(`select cancelar_venta($1, 'Error de captura')`, [v.venta_id])))
-      .rejects.toThrow(/permiso/);
-    await asUser(s.admin, (c) => c.query(`select cancelar_venta($1, 'Error de captura')`, [v.venta_id]));
+    // Un vendedor de otra sucursal no puede cancelarla; el de la sucursal sí (0024)
+    await expect(asUser(s.cajeroB, (c) => c.query(`select cancelar_venta($1, 'Error de captura')`, [v.venta_id])))
+      .rejects.toThrow(/sucursal/);
+    await asUser(s.cajeroA, (c) => c.query(`select cancelar_venta($1, 'Error de captura')`, [v.venta_id]));
     expect(await stock(s.piso.id, s.almA)).toBeCloseTo(antes, 6);
     const sum = await q(`select sum(cantidad)::numeric s from movimientos where documento_id = $1`, [v.venta_id]);
     expect(Number(sum[0].s)).toBe(0);
