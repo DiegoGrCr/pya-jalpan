@@ -470,7 +470,7 @@ export default function CapturarVenta() {
                         )}
                       </td>
                     )}
-                    <td className="py-2 pr-3 text-right whitespace-nowrap underline decoration-dotted">{importes[i] ? fmtImporte(importes[i]!.total) : "—"}</td>
+                    <td className="py-2 pr-3 text-right whitespace-nowrap font-medium">{importes[i] ? fmtImporte(importes[i]!.total) : "—"}</td>
                     <td className="py-1.5">
                       <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                         <BotonIcono activo={!!l.verDesc || Number(l.descValor) > 0} titulo="Descuento del renglón" onClick={() => editar(l.uid, { verDesc: !l.verDesc })}>
