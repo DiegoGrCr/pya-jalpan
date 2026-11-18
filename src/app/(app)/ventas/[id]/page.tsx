@@ -356,7 +356,7 @@ export default function DetalleVenta() {
               <dt>I.V.A.:</dt><dd className="text-right">{fmtImporte(v.iva)} MXN</dd>
               <dt className="font-semibold">Total:</dt><dd className="text-right font-semibold">{fmtImporte(v.total)} MXN</dd>
               <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(v.pagado)} MXN</dd>
-              {v.tipo === "credito"
+              {v.tipo === "credito" || Number(v.saldo) > 0
                 ? <><dt>Saldo:</dt><dd className="text-right font-semibold">{fmtImporte(v.saldo)} MXN</dd></>
                 : <><dt>Cambio:</dt><dd className="text-right">{fmtImporte(v.cambio)} MXN</dd></>}
             </dl>

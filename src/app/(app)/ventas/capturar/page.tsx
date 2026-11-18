@@ -28,7 +28,7 @@ interface Cliente { id: string; nombre: string; rfc: string | null; es_publico_g
 interface Almacen { id: string; nombre: string; sucursal_id: string; multisucursal: boolean }
 interface Sucursal { id: string; codigo: string; nombre: string; cp_expedicion: string | null; direccion?: string | null; telefono?: string | null }
 interface Captura {
-  clave: string; sucursalId: string; almacenId: string; cliente: Cliente | null; tipo: "contado" | "credito"; lineas: Linea[]; pagos: Pago[]; comentarios: string; sinIva?: boolean;
+  clave: string; sucursalId: string; almacenId: string; cliente: Cliente | null; tipo: "contado" | "credito" | "abono"; lineas: Linea[]; pagos: Pago[]; comentarios: string; sinIva?: boolean;
   ordenCompra?: string; descGlobalTipo?: TipoDesc; descGlobalValor?: string;
 }
 interface DetalleProducto { producto: ProductoVenta; filas: { almacen: string; cantidad: number; apartado: number }[] | null }
@@ -253,6 +253,8 @@ export default function CapturarVenta() {
   if (c.lineas.some((l) => Number(l.precio) <= 0)) motivos.push("Hay partidas con precio en 0.");
   c.lineas.forEach((l, i) => { if (descuentos.propios[i].gt(descuentos.brutos[i])) motivos.push(`${l.producto.nombre}: el descuento es mayor al importe.`); });
   if (c.tipo === "credito" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("La venta a crédito requiere un cliente registrado.");
+  if (c.tipo === "abono" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("Para dejar saldo pendiente elige o da de alta al cliente (+ Nuevo).");
+  if (c.tipo === "abono" && pagado.gt(total)) motivos.push("El abono es mayor al total de la venta.");
   if (c.tipo === "contado" && c.lineas.length && pagado.lt(total)) motivos.push(`El pago no cubre el total: faltan ${fmtImporte(faltaPagar)}.`);
   const puedeGuardar = !guardando && motivos.length === 0;
 
@@ -263,7 +265,7 @@ export default function CapturarVenta() {
     try {
       const { data, error } = await supabase().rpc("confirmar_venta", { p: {
         idempotency_key: c.clave, sucursal_id: c.sucursalId, almacen_id: c.almacenId, lista_id: lista?.id,
-        cliente_id: c.cliente?.id ?? null, tipo: c.tipo, comentarios: c.comentarios || null, sin_iva: sinIva,
+        cliente_id: c.cliente?.id ?? null, tipo: c.tipo === "abono" ? "contado" : c.tipo, pago_pendiente: c.tipo === "abono", comentarios: c.comentarios || null, sin_iva: sinIva,
         orden_compra: c.ordenCompra?.trim() || null,
         partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
           precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora,
@@ -379,7 +381,7 @@ export default function CapturarVenta() {
           </label>
           <label>Tipo de venta:
             <select className="campo" value={c.tipo} onChange={(e) => setC((v) => ({ ...v, tipo: e.target.value as Captura["tipo"] }))}>
-              <option value="contado">Contado</option><option value="credito">Crédito</option>
+              <option value="contado">Contado</option><option value="abono">Contado con abono</option><option value="credito">Crédito</option>
             </select>
           </label>
           <label>Días de crédito:
@@ -533,7 +535,7 @@ export default function CapturarVenta() {
                 <select className="campo" value={p.forma} onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, forma: e.target.value as Forma } : x)) }))}>
                   {Object.entries(FORMAS).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
                 </select>
-                <input className="campo" inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${fmtImporte(total)} (total)` : "Importe"} value={p.importe}
+                <input className="campo" inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${fmtImporte(total)} (total)` : c.tipo === "abono" ? "Abono" : "Importe"} value={p.importe}
                   onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, importe: e.target.value } : x)) }))} />
                 <input className="campo col-span-2 sm:col-span-1" placeholder={p.forma === "efectivo" ? "Referencia (opcional)" : "Referencia / últimos 4 dígitos / autorización"} value={p.referencia}
                   onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, referencia: e.target.value } : x)) }))} />
@@ -571,7 +573,7 @@ export default function CapturarVenta() {
               <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(pagado)}</dd>
               {c.tipo === "contado"
                 ? <><dt>Cambio:</dt><dd className="text-right font-semibold">{fmtImporte(cambio)}</dd></>
-                : <><dt>Saldo a crédito:</dt><dd className="text-right font-semibold">{fmtImporte(faltaPagar)}</dd></>}
+                : <><dt>{c.tipo === "abono" ? "Saldo pendiente:" : "Saldo a crédito:"}</dt><dd className="text-right font-semibold">{fmtImporte(faltaPagar)}</dd></>}
             </dl>
             <div className="flex justify-end gap-2 mt-4">
               <button className="px-3 py-2 underline" onClick={() => { if (window.confirm("¿Descartar esta captura?")) setC(capturaNueva(c.sucursalId, c.almacenId, publico)); }}>Descartar</button>
