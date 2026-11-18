@@ -17,6 +17,8 @@ describe("tablero", () => {
     expect(Number(t.periodo.ventas_total)).toBeGreaterThanOrEqual(720);
     expect(Number(t.periodo.cobrado)).toBeGreaterThanOrEqual(720);
     expect(t.productos[0].sku).toBeTruthy();
+    expect(t.productos_cantidad[0].sku).toBeTruthy();
+    expect(Number(t.productos_cantidad[0].medida)).toBeGreaterThan(0);
     const b = await rpc(s.cajeroB, "tablero", { sucursal_id: s.sucA });
     expect(Number(b.periodo.ventas_total)).toBe(0);   // otra sucursal: no ve esas ventas
   });

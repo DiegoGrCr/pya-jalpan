@@ -11,6 +11,7 @@ import { fmtCantidad, fmtImporte, nombreConCaja } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
 import GraficaBarras from "@/components/GraficaBarras";
 
+interface ProdTop { sku: string; nombre: string; formato: string | null; m2_por_caja: number | null; unidad_base?: string; total: number; cantidad_base: number; m2: number | null; medida?: number }
 interface Tablero {
   desde: string; hasta: string;
   ventas_mes: { mes: string; total: number; ventas: number }[];
@@ -18,7 +19,9 @@ interface Tablero {
   periodo: { ventas_total: number; num_ventas: number; descuentos: number; cobrado: number; devoluciones: number; por_cerrar: number };
   capital: { cxc: number; cxc_vencida: number; num_con_saldo: number; inventario: number; saldo_favor: number };
   categorias: { categoria: string; total: number }[];
-  productos: { sku: string; nombre: string; formato: string | null; m2_por_caja: number | null; total: number; cantidad_base: number; m2: number | null }[];
+  productos: ProdTop[];
+  /** Ordenados por cantidad (m² en pisos, unidad en lo demás); migración 0034 */
+  productos_cantidad?: ProdTop[];
   sucursales: { sucursal: string; total: number; ventas: number }[];
   vendedores: { vendedor_id: string | null; total: number; ventas: number }[];
 }
@@ -46,18 +49,23 @@ export default function Inicio() {
   const [nombres, setNombres] = useState<Record<string, string>>({});
   const [meses, setMeses] = useState(12);
   const [mesesFlujo, setMesesFlujo] = useState(12);
+  const [ordenTop, setOrdenTop] = useState<"dinero" | "cantidad">("dinero");
+  const [catTop, setCatTop] = useState("");
+  const [categoriasLista, setCategoriasLista] = useState<{ id: string; nombre: string }[]>([]);
   const [cargando, setCargando] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
 
   useEffect(() => {
     supabase().from("sucursales").select("id, codigo, nombre").eq("activa", true).order("codigo")
       .then(({ data }: { data: unknown }) => setSucursales(((data ?? []) as { id: string; codigo: string; nombre: string }[]).map((s) => ({ id: s.id, nombre: `${s.codigo} - ${s.nombre}` }))));
+    supabase().from("categorias").select("id, nombre").order("nombre")
+      .then(({ data }: { data: unknown }) => setCategoriasLista((data ?? []) as { id: string; nombre: string }[]));
   }, []);
 
   const cargar = useCallback(async () => {
     setCargando(true); setMsg(null);
     try {
-      const { data, error } = await supabase().rpc("tablero", { p: { desde, hasta, sucursal_id: sucursal || null } });
+      const { data, error } = await supabase().rpc("tablero", { p: { desde, hasta, sucursal_id: sucursal || null, categoria_id: catTop || null } });
       if (error) {
         if (/tablero/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000031_tablero.sql en Supabase para ver el tablero.");
         throw error;
@@ -67,9 +75,11 @@ export default function Inicio() {
       const ids = tb.vendedores.map((x) => x.vendedor_id ?? "").filter(Boolean);
       if (ids.length) setNombres(await nombresUsuarios(ids));
     } catch (e) { setMsg(mensajeError(e)); } finally { setCargando(false); }
-  }, [desde, hasta, sucursal]);
+  }, [desde, hasta, sucursal, catTop]);
 
   useEffect(() => { cargar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Al cambiar la categoría de "más vendidos" se vuelve a consultar
+  useEffect(() => { if (t) cargar(); }, [catTop]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ventasMes = useMemo(() => (t?.ventas_mes ?? []).slice(-meses).map((m) => ({
     etiqueta: mesCorto(m.mes), valor: Number(m.total), detalle: `${m.ventas} venta${m.ventas === 1 ? "" : "s"}` })), [t, meses]);
@@ -213,30 +223,52 @@ export default function Inicio() {
             </div>
             <div className="grid gap-6 lg:grid-cols-2">
               <div>
-                <h2 className="text-lg mb-2">Productos más vendidos</h2>
-                {/* Barras horizontales (un solo color) con el total y los m² / cantidad a la vista */}
-                {!t.productos.length && <div className="text-sm text-[var(--tenue)]">Sin ventas en el periodo.</div>}
-                <ol className="flex flex-col gap-2.5 text-sm">
-                  {t.productos.map((x, i) => {
-                    const max = Math.max(1, ...t.productos.map((y) => Number(y.total)));
-                    return (
-                      <li key={x.sku} title={`${x.sku} · ${$(x.total)}`}>
-                        <div className="flex justify-between gap-3">
-                          <span className="min-w-0 truncate"><span className="text-[var(--tenue)] mr-1">{i + 1}.</span>{nombreConCaja(x.nombre, x.m2_por_caja, x.formato)}</span>
-                          <span className="whitespace-nowrap font-medium">{$(x.total)}</span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-0.5">
-                          <div className="flex-1 h-2 rounded bg-[var(--resalte)]">
-                            <div className="h-2 rounded" style={{ width: `${(Number(x.total) / max) * 100}%`, background: "var(--acento)" }} />
-                          </div>
-                          <span className="text-xs text-[var(--tenue)] whitespace-nowrap w-24 text-right">
-                            {x.m2 ? `${fmtCantidad(x.m2, 2)} m²` : fmtCantidad(x.cantidad_base, 2)}
-                          </span>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ol>
+                <div className="flex flex-wrap items-end justify-between gap-2 mb-2">
+                  <h2 className="text-lg">Productos más vendidos</h2>
+                  <div className="flex flex-wrap gap-2 items-end text-sm">
+                    <div className="inline-flex rounded border border-[var(--borde)] overflow-hidden" role="group" aria-label="Ordenar por">
+                      {(["dinero", "cantidad"] as const).map((o) => (
+                        <button key={o} onClick={() => setOrdenTop(o)} aria-pressed={ordenTop === o}
+                          className={`px-2.5 py-1 ${ordenTop === o ? "text-white" : "text-[var(--acento)] hover:bg-[var(--resalte)]"}`}
+                          style={ordenTop === o ? { background: "var(--acento)" } : undefined}>{o === "dinero" ? "Por dinero" : "Por cantidad"}</button>
+                      ))}
+                    </div>
+                    <select className="campo !py-1 !w-auto" aria-label="Categoría" value={catTop} onChange={(e) => setCatTop(e.target.value)}>
+                      <option value="">Todas las categorías</option>{categoriasLista.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                    </select>
+                  </div>
+                </div>
+                {(() => {
+                  const lista = ordenTop === "cantidad" ? (t.productos_cantidad ?? []) : t.productos;
+                  const valor = (x: ProdTop) => ordenTop === "cantidad" ? Number(x.medida ?? x.m2 ?? x.cantidad_base) : Number(x.total);
+                  const cantTxt = (x: ProdTop) => x.m2 ? `${fmtCantidad(x.m2, 2)} m²` : `${fmtCantidad(x.cantidad_base, 2)} ${x.unidad_base ?? ""}`.trim();
+                  const max = Math.max(1, ...lista.map(valor));
+                  if (ordenTop === "cantidad" && !t.productos_cantidad)
+                    return <div className="text-sm text-[var(--tenue)]">Para ordenar por cantidad falta ejecutar la migración 20261118000034_tablero_cantidad.sql en Supabase.</div>;
+                  if (!lista.length) return <div className="text-sm text-[var(--tenue)]">Sin ventas en el periodo.</div>;
+                  return (
+                    <>
+                      {ordenTop === "cantidad" && <p className="text-xs text-[var(--tenue)] mb-2">Cantidad: m² en pisos y su unidad en lo demás. Para comparar solo pisos, elige su categoría.</p>}
+                      {/* Barras horizontales (un solo color) con el total y la cantidad a la vista; la métrica elegida va en negritas */}
+                      <ol className="flex flex-col gap-2.5 text-sm">
+                        {lista.map((x, i) => (
+                          <li key={x.sku} title={`${x.sku} · ${$(x.total)} · ${cantTxt(x)}`}>
+                            <div className="flex justify-between gap-3">
+                              <span className="min-w-0 truncate"><span className="text-[var(--tenue)] mr-1">{i + 1}.</span>{nombreConCaja(x.nombre, x.m2_por_caja, x.formato)}</span>
+                              <span className={`whitespace-nowrap ${ordenTop === "dinero" ? "font-semibold" : "text-[var(--tenue)]"}`}>{$(x.total)}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <div className="flex-1 h-2 rounded bg-[var(--resalte)]">
+                                <div className="h-2 rounded" style={{ width: `${(valor(x) / max) * 100}%`, background: "var(--acento)" }} />
+                              </div>
+                              <span className={`text-xs whitespace-nowrap w-28 text-right ${ordenTop === "cantidad" ? "font-semibold" : "text-[var(--tenue)]"}`}>{cantTxt(x)}</span>
+                            </div>
+                          </li>
+                        ))}
+                      </ol>
+                    </>
+                  );
+                })()}
               </div>
               <div className="flex flex-col gap-6">
                 <div>
