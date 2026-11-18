@@ -398,7 +398,7 @@ export default function CapturarVenta() {
                 <th className="py-1 font-normal w-24">Código</th><th className="font-normal w-28">Unidad</th><th className="font-normal">Concepto</th>
                 <th className="font-normal w-24">Cant.</th><th className="font-normal w-28">Precio</th>
                 {conDescuento && <th className="font-normal w-36">Descuento</th>}
-                <th className="font-normal w-28 text-right">Importe</th><th className="w-28"></th>
+                <th className="font-normal w-28 text-right pr-3">Importe</th><th className="w-40"></th>
               </tr>
             </thead>
             <tbody>
@@ -468,17 +468,25 @@ export default function CapturarVenta() {
                         )}
                       </td>
                     )}
-                    <td className="py-2 text-right underline decoration-dotted">{importes[i] ? fmtImporte(importes[i]!.total) : "—"}</td>
-                    <td className="py-2 text-right whitespace-nowrap">
-                      <button className="mr-1 w-6 h-6 rounded-full text-white text-xs" style={{ background: l.verDesc || Number(l.descValor) > 0 ? "var(--acento)" : "#777" }}
-                        title="Descuento del renglón" aria-label="Descuento del renglón" onClick={() => editar(l.uid, { verDesc: !l.verDesc })}>%</button>
-                      <button className="mr-2 w-6 h-6 rounded-full text-white text-xs" style={{ background: l.verComent || l.comentario ? "var(--acento)" : "#777" }}
-                        title="Comentario del renglón" aria-label="Comentario del renglón" onClick={() => editar(l.uid, { verComent: !l.verComent })}>💬</button>
-                      <label title="Se entrega ahora (desmarca si se entrega después)" className="mr-2 text-xs">
-                        <input type="checkbox" checked={l.entregarAhora} onChange={(e) => editar(l.uid, { entregarAhora: e.target.checked })} /> Ent.
-                      </label>
-                      <button aria-label="Quitar partida" className="w-6 h-6 rounded-full text-white text-xs" style={{ background: "var(--peligro)" }}
-                        onClick={() => setC((v) => ({ ...v, lineas: v.lineas.filter((x) => x.uid !== l.uid) }))}>✕</button>
+                    <td className="py-2 pr-3 text-right whitespace-nowrap underline decoration-dotted">{importes[i] ? fmtImporte(importes[i]!.total) : "—"}</td>
+                    <td className="py-1.5">
+                      <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                        <BotonIcono activo={!!l.verDesc || Number(l.descValor) > 0} titulo="Descuento del renglón" onClick={() => editar(l.uid, { verDesc: !l.verDesc })}>
+                          {/* etiqueta */}
+                          <path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Z" /><circle cx="7.5" cy="7.5" r="1.5" fill="currentColor" stroke="none" />
+                        </BotonIcono>
+                        <BotonIcono activo={!!l.verComent || !!l.comentario} titulo="Comentario del renglón" onClick={() => editar(l.uid, { verComent: !l.verComent })}>
+                          {/* globo de comentario */}
+                          <path d="M4 5h16v11H9l-5 4V5Z" />
+                        </BotonIcono>
+                        <label title="Se entrega ahora (desmarca si se entrega después)" className="flex items-center gap-1 text-xs mx-1 cursor-pointer">
+                          <input type="checkbox" checked={l.entregarAhora} onChange={(e) => editar(l.uid, { entregarAhora: e.target.checked })} /> Ent.
+                        </label>
+                        <button aria-label="Quitar partida" title="Quitar partida" className="w-7 h-7 rounded-full text-white flex items-center justify-center"
+                          style={{ background: "var(--peligro)" }} onClick={() => setC((v) => ({ ...v, lineas: v.lineas.filter((x) => x.uid !== l.uid) }))}>
+                          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M6 6l12 12M18 6 6 18" /></svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -609,5 +617,15 @@ export default function CapturarVenta() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Botón redondo con icono (gris; azul cuando está en uso). */
+function BotonIcono({ activo, titulo, onClick, children }: { activo: boolean; titulo: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button type="button" title={titulo} aria-label={titulo} aria-pressed={activo} onClick={onClick}
+      className="w-7 h-7 rounded-full text-white flex items-center justify-center" style={{ background: activo ? "var(--acento)" : "#7a7a7a" }}>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round">{children}</svg>
+    </button>
   );
 }
