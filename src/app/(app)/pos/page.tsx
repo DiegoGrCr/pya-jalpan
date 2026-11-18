@@ -229,7 +229,7 @@ export default function PuntoDeVenta() {
           <ul className="absolute z-10 mt-1 w-full rounded-md border bg-[var(--panel)] shadow max-h-80 overflow-auto">
             {resultados.map((p) => (
               <li key={p.id} className="px-3 py-2 hover:bg-[var(--resalte)] cursor-pointer flex justify-between" onClick={() => agregar(p)}>
-                <span><b>{p.sku}</b> · {p.nombre}</span>
+                <span><b>{p.sku}</b> · {nombreConCaja(p.nombre, p.m2_por_caja)}</span>
                 <span className="text-sm opacity-80">
                   Exist.: {fmtCantidad(existencias[p.id] ?? 0)} {p.unidad_base}
                 </span>

@@ -371,7 +371,7 @@ export default function CapturarVenta() {
                     <li key={p.id} onClick={() => agregar(p)}
                       className="px-3 py-2 cursor-pointer text-sm hover:bg-[var(--resalte)]"
                       style={i === 0 ? { background: "var(--acento)", color: "white" } : undefined}>
-                      {p.sku} - {p.nombre}
+                      {p.sku} - {nombreConCaja(p.nombre, p.m2_por_caja)}
                     </li>
                   ))}
                 </ul>
