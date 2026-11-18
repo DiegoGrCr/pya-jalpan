@@ -274,13 +274,13 @@ describe("Seguridad (contra la base de datos)", () => {
     expect(vs).toEqual([s.sucA]);
   });
 
-  it("cambiar precio o aplicar descuento requiere permiso", async () => {
+  it("cambiar precio requiere permiso; el vendedor sí puede aplicar descuentos (0021)", async () => {
     await expect(rpc(s.cajeroA, "confirmar_venta", venta({}, [
       { producto_id: s.piso.id, unidad_venta_id: s.piso.caja, cantidad: 1, precio_unitario: 300 }])))
       .rejects.toThrow(/cambiar el precio/);
     await expect(rpc(s.cajeroA, "confirmar_venta", venta({}, [
       { producto_id: s.piso.id, unidad_venta_id: s.piso.caja, cantidad: 1, precio_unitario: 360, descuento: 10 }])))
-      .rejects.toThrow(/descuentos/);
+      .resolves.toMatchObject({ repetida: false });
   });
 });
 
