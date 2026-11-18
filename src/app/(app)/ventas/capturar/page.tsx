@@ -10,7 +10,7 @@ import Decimal from "decimal.js";
 import { useRouter } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { EMPRESA_VACIA, EmpresaDoc, cargarEmpresa } from "@/lib/documentoVenta";
-import { ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, fmtCantidad, fmtImporte, medida, unidadesNecesarias } from "@/lib/unidades";
+import { TIPO_VENTA, ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, fmtCantidad, fmtImporte, medida, unidadesNecesarias } from "@/lib/unidades";
 
 type Forma = "efectivo" | "transferencia" | "tarjeta_debito" | "tarjeta_credito" | "saldo_favor";
 const FORMAS: Record<Forma, string> = {
@@ -508,7 +508,7 @@ export default function CapturarVenta() {
           </label>
           <label>Tipo de venta:
             <select className="campo" value={c.tipo} disabled={!!c.edicion} onChange={(e) => setC((v) => ({ ...v, tipo: e.target.value as Captura["tipo"] }))}>
-              <option value="contado">Contado</option><option value="abono">Contado con abono</option><option value="credito">Crédito</option>
+              {(["contado", "abono", "credito"] as const).map((k) => <option key={k} value={k}>{TIPO_VENTA[k].largo}</option>)}
             </select>
           </label>
           <label>Días de crédito:

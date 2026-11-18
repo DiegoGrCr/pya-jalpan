@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import {
-  ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, equivalencia, fmtCantidad, fmtImporte, mxn, mxnPrecio, unidadesNecesarias,
+  TIPO_VENTA, ProductoVenta, UnidadVenta, aBase, ajustarCantidad, nombreConCaja, calcularPartida, cantidadValida, equivalencia, fmtCantidad, fmtImporte, mxn, mxnPrecio, unidadesNecesarias,
 } from "@/lib/unidades";
 
 interface Linea {
@@ -290,7 +290,7 @@ export default function PuntoDeVenta() {
         <div className="flex gap-2 items-center">
           <label>Tipo:</label>
           <select value={carrito.tipo} onChange={(e) => setCarrito((c) => ({ ...c, tipo: e.target.value as Carrito["tipo"] }))} className="border rounded px-2 py-1 bg-[var(--panel)]">
-            <option value="contado">Contado</option><option value="credito">Crédito</option>
+            <option value="contado">{TIPO_VENTA.contado.largo}</option><option value="credito">{TIPO_VENTA.credito.largo}</option>
           </select>
           <button onClick={() => { if (confirm("¿Vaciar el carrito?")) setCarrito(nuevoCarrito()); }} className="text-sm underline">Vaciar</button>
         </div>

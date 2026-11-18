@@ -145,3 +145,12 @@ export const fmtImporte = (v: Decimal.Value) =>
 /** Precio unitario con separador de miles, como da (2 a 6 decimales): 1,234.5675 */
 export const fmtPrecio = (v: Decimal.Value) =>
   D(v).toNumber().toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+
+/** Tipo de venta con su clave de método de pago (PUE / PPD), como se muestra al capturar. */
+export const TIPO_VENTA: Record<"contado" | "abono" | "credito", { corto: string; largo: string }> = {
+  contado: { corto: "PUE", largo: "PUE (Pago en una sola exhibición)" },
+  abono:   { corto: "PPD", largo: "PPD (Pago en parcialidades o diferido)" },
+  credito: { corto: "Crédito", largo: "Crédito (PPD, con días de crédito)" },
+};
+export const tipoVentaDe = (tipo: string, conAbono?: boolean | null) =>
+  TIPO_VENTA[tipo === "credito" ? "credito" : conAbono ? "abono" : "contado"];

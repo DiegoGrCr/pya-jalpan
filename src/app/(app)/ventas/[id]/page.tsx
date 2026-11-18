@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { fmtCantidad, fmtImporte, fmtPrecio, mxn, nombreConCaja } from "@/lib/unidades";
+import { fmtCantidad, fmtImporte, fmtPrecio, mxn, nombreConCaja, tipoVentaDe } from "@/lib/unidades";
 import { copiarImagen, pdfAPng } from "@/lib/notaImagen";
 import EstatusVenta from "@/components/EstatusVenta";
 import { FORMAS_PAGO, VentaDoc, archivoDe, cargarVenta, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
@@ -28,7 +28,7 @@ export default function DetalleVenta() {
   const [menu, setMenu] = useState(false);
   const [pestana, setPestana] = useState<"detalle" | "pagos" | "actividades">("detalle");
   // Estado de cierre y ediciones (0027); si falta la migración se asume abierta y sin edición
-  const [cierre, setCierre] = useState<{ cerrada: boolean; ediciones: number; disponible: boolean }>({ cerrada: false, ediciones: 0, disponible: false });
+  const [cierre, setCierre] = useState<{ cerrada: boolean; ediciones: number; disponible: boolean; conAbono?: boolean }>({ cerrada: false, ediciones: 0, disponible: false });
   const [historial, setHistorial] = useState<{ fecha: string; accion: string; usuario: string; detalle: Record<string, unknown> }[] | null>(null);
   const [devoluciones, setDevoluciones] = useState<{ fecha: string; forma: string; importe: string }[]>([]);
   const [cancelacion, setCancelacion] = useState<{ motivo: string; detalle: string } | null>(null);
@@ -47,11 +47,11 @@ export default function DetalleVenta() {
       setV(await cargarVenta(id));
       const sb = supabase();
       const [ex, dv] = await Promise.all([
-        sb.from("ventas").select("cerrada, ediciones").eq("id", id).maybeSingle(),
+        sb.from("ventas").select("cerrada, ediciones, con_abono").eq("id", id).maybeSingle(),
         sb.from("venta_devoluciones").select("fecha, forma, importe").eq("venta_id", id).order("fecha"),
       ]);
-      const d = ex.data as { cerrada: boolean; ediciones: number } | null;
-      setCierre(ex.error || !d ? { cerrada: false, ediciones: 0, disponible: false } : { ...d, disponible: true });
+      const d = ex.data as { cerrada: boolean; ediciones: number; con_abono: boolean } | null;
+      setCierre(ex.error || !d ? { cerrada: false, ediciones: 0, disponible: false } : { cerrada: d.cerrada, ediciones: d.ediciones, conAbono: d.con_abono, disponible: true });
       setDevoluciones(dv.error ? [] : (dv.data ?? []) as { fecha: string; forma: string; importe: string }[]);
       setHistorial(null);
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setCargando(false); }
@@ -318,7 +318,7 @@ export default function DetalleVenta() {
                   <Dato k="Comentarios">{v.comentarios ?? ""}</Dato>
                 </div>
                 <div>
-                  <Dato k="Tipo">{v.tipo === "credito" ? "Crédito" : "Contado"}</Dato>
+                  <Dato k="Tipo de venta">{tipoVentaDe(v.tipo, cierre.conAbono).largo}</Dato>
                   <Dato k="Fecha">{fechaMx(v.fecha)}</Dato>
                   <Dato k="Sucursal">{v.sucursal.codigo} - {v.sucursal.nombre}</Dato>
                   <Dato k="Almacén">{v.almacen}</Dato>

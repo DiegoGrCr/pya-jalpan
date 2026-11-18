@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { fmtImporte } from "@/lib/unidades";
+import { TIPO_VENTA, fmtImporte } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
 import EstatusVenta from "@/components/EstatusVenta";
 
@@ -35,7 +35,7 @@ export default function ListaVentas() {
   const [hasta, setHasta] = useState(hoyMx());
   const [sucursal, setSucursal] = useState("");
   const [estatus, setEstatus] = useState<"" | "abierta" | "pagada_abierta" | "cerrada" | "cancelada" | "pendiente_pago" | "pendiente_entrega">("");
-  const [tipo, setTipo] = useState<"" | "contado" | "credito">("");
+  const [tipo, setTipo] = useState<"" | "contado" | "abono" | "credito">("");
   const [pagina, setPagina] = useState(0);
   const [cargando, setCargando] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
@@ -58,7 +58,9 @@ export default function ListaVentas() {
       if (desde) q = q.gte("fecha", `${desde}T00:00:00-06:00`);
       if (hasta) q = q.lte("fecha", `${hasta}T23:59:59.999-06:00`);
       if (sucursal) q = q.eq("sucursal_id", sucursal);
-      if (tipo) q = q.eq("tipo", tipo);
+      if (tipo === "credito") q = q.eq("tipo", "credito");
+      if (tipo === "contado") q = q.eq("tipo", "contado").eq("con_abono", false);
+      if (tipo === "abono") q = q.eq("tipo", "contado").eq("con_abono", true);
       if (estatus === "abierta") q = q.eq("estado", "confirmada").eq("cerrada", false);
       if (estatus === "pagada_abierta") q = q.eq("estado", "confirmada").eq("cerrada", false).lte("saldo", 0);
       if (estatus === "cerrada") q = q.eq("estado", "confirmada").eq("cerrada", true);
@@ -124,7 +126,7 @@ export default function ListaVentas() {
           </label>
           <label>Tipo
             <select className="campo" value={tipo} onChange={(e) => setTipo(e.target.value as typeof tipo)}>
-              <option value="">Todas</option><option value="contado">Contado</option><option value="credito">Crédito</option>
+              <option value="">Todas</option>{(["contado", "abono", "credito"] as const).map((k) => <option key={k} value={k}>{TIPO_VENTA[k].largo}</option>)}
             </select>
           </label>
         </div>

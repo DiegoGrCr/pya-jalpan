@@ -7,7 +7,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { fmtCantidad, fmtImporte, nombreConCaja } from "@/lib/unidades";
+import { TIPO_VENTA, fmtCantidad, fmtImporte, nombreConCaja, tipoVentaDe } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
 import EstatusVenta from "@/components/EstatusVenta";
 
@@ -42,7 +42,7 @@ const inicioMes = () => `${hoy().slice(0, 8)}01`;
 const fechaCorta = (iso: string) => new Date(iso).toLocaleDateString("es-MX", { ...tz, day: "2-digit", month: "short", year: "numeric" });
 const n = (x: string | number | null | undefined) => Number(x ?? 0);
 const $ = (x: number) => `$${fmtImporte(x)}`;
-const tipoDe = (v: Venta) => (v.tipo === "credito" ? "Crédito" : v.con_abono ? "Contado con abono" : "Contado");
+const tipoDe = (v: Venta) => tipoVentaDe(v.tipo, v.con_abono).largo;
 
 const FILTROS_VACIOS = {
   desde: inicioMes(), hasta: hoy(), sucursal_id: "", almacen_id: "", vendedor_id: "", cliente: "", estatus: "", cierre: "", tipo: "", forma_pago: "",
@@ -262,7 +262,7 @@ export default function ReporteVentas() {
             </label>
             <label>Tipo de venta
               <select className="campo" value={f.tipo} onChange={(e) => set("tipo", e.target.value)}>
-                <option value="">Todos</option><option value="contado">Contado</option><option value="abono">Contado con abono</option><option value="credito">Crédito</option>
+                <option value="">Todos</option>{(["contado", "abono", "credito"] as const).map((k) => <option key={k} value={k}>{TIPO_VENTA[k].largo}</option>)}
               </select>
             </label>
             <label>Orden de compra<input className="campo" value={f.orden_compra} onChange={(e) => set("orden_compra", e.target.value)} /></label>
