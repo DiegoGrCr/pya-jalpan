@@ -1,29 +1,79 @@
 "use client";
 /**
  * Finanzas › Corte de caja (por sucursal, normalmente semanal).
- * Corte en curso desde el último corte: entradas por forma de pago, devoluciones, retiros de efectivo y gastos.
- * Dos totales: total general (todas las formas) y efectivo esperado en caja. Se cierra con el efectivo contado.
+ * Corte en curso desde el último corte: ventas (folio, cliente, cómo se pagó, estatus), entradas por forma de pago,
+ * devoluciones, retiros y gastos; cuadre de efectivo como lo pide la contadora. Se cierra con el efectivo contado.
+ * Se imprime o se exporta a Excel (en curso y cortes anteriores).
  */
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, mensajeError } from "@/lib/supabase/client";
-import { fmtImporte } from "@/lib/unidades";
-import { FORMAS_PAGO, fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
+import { FORMAS_PAGO, cargarEmpresa, fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
+import { $, FORMAS, cuadreEfectivo, estatusCorte, excelCorte, imprimirCorte, pagoDe, totalesVentas,
+  type DatosCorte, type Linea, type Resumen, type Retiro, type VentaCorte } from "@/lib/corteCaja";
 import { CATEGORIAS_GASTO, FORMAS_GASTO } from "@/lib/gastos";
 
-interface Linea { concepto: string; forma: string; importe: number }
-interface Retiro { id: string; fecha: string; importe: number; concepto: string; usuario: string | null }
-interface Gasto extends Retiro { categoria: string; forma: string; proveedor: string | null }
-interface Resumen {
-  desde: string; hasta: string; entradas: Linea[]; salidas: Linea[]; retiros: Retiro[]; retirado: number;
-  gastos?: Gasto[]; gastado?: number; gastado_efectivo?: number; neto?: number;
-  total_general: number; efectivo_esperado: number; por_forma: Record<string, number>;
-}
 interface Corte {
   id: string; serie: string; folio: number; desde: string; hasta: string; total_general: string; efectivo_esperado: string;
   efectivo_contado: string; diferencia: string; notas: string | null; usuario_id: string | null; resumen: Resumen;
 }
-const FORMAS = ["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia"];
-const $ = (n: number | string) => `$${fmtImporte(Number(n))}`;
+
+/** Ventas del corte: folio, cliente, cuánto se cobró por forma y estatus */
+function VentasCorte({ ventas }: { ventas: VentaCorte[] }) {
+  if (!ventas.length) return <div className="text-sm text-[var(--tenue)]">Sin ventas en este corte.</div>;
+  const t = totalesVentas(ventas);
+  const m = (x: number) => (x ? $(x) : "");
+  const color: Record<string, string> = { Pagada: "bg-emerald-100 text-emerald-900", "Por cobrar": "bg-amber-100 text-amber-900",
+    Cancelada: "bg-gray-200 text-gray-700", "Abono a venta anterior": "bg-sky-100 text-sky-900" };
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm min-w-[860px]">
+        <thead style={{ color: "var(--acento)" }}><tr className="text-left border-b border-[var(--borde)]">
+          <th className="py-1 pr-3 font-normal">Folio</th><th className="pr-3 font-normal">Fecha</th><th className="pr-3 font-normal">Cliente</th>
+          <th className="pr-3 font-normal text-right">Efectivo</th><th className="pr-3 font-normal text-right">Tarjeta</th>
+          <th className="pr-3 font-normal text-right">Transferencia</th>{t.otro ? <th className="pr-3 font-normal text-right">Otro</th> : null}
+          <th className="pr-3 font-normal text-right">Total</th><th className="font-normal">Estatus</th></tr></thead>
+        <tbody>
+          {ventas.map((v) => {
+            const p = pagoDe(v); const c = v.estado === "cancelada"; const e = estatusCorte(v);
+            return (
+              <tr key={v.id} className={`border-b border-[var(--borde)] ${c ? "text-[var(--tenue)]" : ""}`}>
+                <td className="py-1.5 pr-3 whitespace-nowrap"><a className="underline" href={`/ventas/${v.id}`} target="_blank" rel="noreferrer">{v.serie} {v.folio}</a></td>
+                <td className="pr-3 whitespace-nowrap">{new Date(v.fecha).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short" })}</td>
+                <td className="pr-3">{v.cliente}</td>
+                <td className="pr-3 text-right">{m(p.efectivo)}</td><td className="pr-3 text-right">{m(p.tarjeta)}</td>
+                <td className="pr-3 text-right">{m(p.transferencia)}</td>{t.otro ? <td className="pr-3 text-right">{m(p.otro)}</td> : null}
+                <td className="pr-3 text-right">{c ? "$0.00" : v.anterior ? "" : $(v.total)}</td>
+                <td className="whitespace-nowrap"><span className={`px-1.5 rounded text-xs ${color[e]}`}>{e}</span>
+                  {!c && !v.anterior && Number(v.saldo) > 0 && <span className="text-xs text-[var(--tenue)]"> {$(v.saldo)}</span>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot><tr className="font-semibold border-t-2" style={{ borderColor: "var(--acento)" }}>
+          <td className="py-1.5 pr-3" colSpan={3}>{t.num} venta{t.num === 1 ? "" : "s"}{t.canceladas ? ` · ${t.canceladas} cancelada${t.canceladas === 1 ? "" : "s"}` : ""}</td>
+          <td className="pr-3 text-right">{$(t.efectivo)}</td><td className="pr-3 text-right">{$(t.tarjeta)}</td><td className="pr-3 text-right">{$(t.transferencia)}</td>
+          {t.otro ? <td className="pr-3 text-right">{$(t.otro)}</td> : null}<td className="pr-3 text-right">{$(t.total)}</td>
+          <td className="text-xs font-normal">{t.porCobrar ? `Por cobrar ${$(t.porCobrar)}` : ""}</td></tr></tfoot>
+      </table>
+    </div>
+  );
+}
+
+/** Cuadre de efectivo renglón por renglón */
+function Cuadre({ r, contado }: { r: Resumen; contado?: number | null }) {
+  return (
+    <div className="text-sm">
+      {cuadreEfectivo(r, contado).map((x, i) => (
+        <div key={i} className={`flex justify-between gap-3 px-2 py-1 ${x.fuerte ? "mt-1 text-white font-semibold rounded" : "border-b border-[var(--borde)]"}`}
+          style={x.fuerte ? { background: "var(--acento)" } : undefined}>
+          <span>{x.signo === "=" ? "" : `(${x.signo === "±" ? (x.importe < 0 ? "−" : "+") : x.signo}) `}{x.texto}
+            {x.detalle && <span className="text-xs text-[var(--tenue)]"> · {x.detalle}</span>}</span>
+          <span className={`whitespace-nowrap ${!x.fuerte && (x.signo === "−" || x.importe < 0) ? "text-[var(--peligro)]" : ""}`}>{$(Math.abs(x.importe))}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** Tabla concepto × forma de pago */
 function TablaFormas({ titulo, lineas, signo }: { titulo: string; lineas: Linea[]; signo: "+" | "−" }) {
@@ -63,6 +113,8 @@ export default function CorteCaja() {
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [trabajando, setTrabajando] = useState(false);
   const [clave, setClave] = useState(() => crypto.randomUUID());
+  const [empresa, setEmpresa] = useState("");
+  useEffect(() => { cargarEmpresa().then((e) => setEmpresa(e.nombre_emisor || e.razon_social || "")).catch(() => {}); }, []);
 
   useEffect(() => {
     (async () => {
@@ -143,30 +195,12 @@ export default function CorteCaja() {
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
   };
 
-  /** Imprime un corte (hoja sencilla) */
-  const imprimir = (c: Corte) => {
-    const suc = sucursales.find((x) => x.id === sucursal);
-    const fila = (l: Linea) => `<tr><td>${l.concepto}</td><td>${FORMAS_PAGO[l.forma] ?? l.forma}</td><td style="text-align:right">${$(l.importe)}</td></tr>`;
-    const w = window.open("", "_blank", "width=800,height=900");
-    if (!w) return;
-    w.document.write(`<html><head><title>Corte ${c.serie} ${c.folio}</title><style>body{font-family:Arial;font-size:12px;margin:24px}table{width:100%;border-collapse:collapse;margin:6px 0 14px}td,th{border-bottom:1px solid #ddd;padding:4px;text-align:left}h1{font-size:18px}.t{font-size:14px;font-weight:bold}</style></head><body>
-      <h1>Corte de caja ${c.serie} ${c.folio}</h1><div>${suc ? `${suc.codigo} - ${suc.nombre}` : ""}</div>
-      <div>Del ${fechaMx(c.desde)} al ${fechaMx(c.hasta)} · Realizó: ${c.usuario_id ? nombres[c.usuario_id] ?? "" : ""}</div>
-      <h3>Entradas</h3><table>${c.resumen.entradas.map(fila).join("") || "<tr><td>Sin entradas</td></tr>"}</table>
-      <h3>Devoluciones</h3><table>${c.resumen.salidas.map(fila).join("") || "<tr><td>Sin devoluciones</td></tr>"}</table>
-      <h3>Retiros de efectivo</h3><table>${c.resumen.retiros.map((x) => `<tr><td>${fechaMx(x.fecha)}</td><td>${x.concepto}</td><td style="text-align:right">${$(x.importe)}</td></tr>`).join("") || "<tr><td>Sin retiros</td></tr>"}</table>
-      ${c.resumen.gastos?.length ? `<h3>Gastos</h3><table>${c.resumen.gastos.map((x) => `<tr><td>${fechaMx(x.fecha)}</td><td>${x.categoria}</td><td>${x.concepto}${x.proveedor ? ` · ${x.proveedor}` : ""}</td><td>${FORMAS_PAGO[x.forma] ?? x.forma}</td><td style="text-align:right">${$(x.importe)}</td></tr>`).join("")}</table>` : ""}
-      <table>${FORMAS.map((f) => `<tr><td>${FORMAS_PAGO[f]}</td><td style="text-align:right">${$(c.resumen.por_forma?.[f] ?? 0)}</td></tr>`).join("")}
-      <tr class="t"><td>TOTAL GENERAL</td><td style="text-align:right">${$(c.total_general)}</td></tr>
-      ${c.resumen.gastado ? `<tr><td>Gastos</td><td style="text-align:right">−${$(c.resumen.gastado)}</td></tr><tr class="t"><td>INGRESOS MENOS GASTOS</td><td style="text-align:right">${$(c.resumen.neto ?? 0)}</td></tr>` : ""}
-      <tr><td>Retiros</td><td style="text-align:right">−${$(c.resumen.retirado)}</td></tr>
-      ${c.resumen.gastado_efectivo ? `<tr><td>Gastos pagados en efectivo</td><td style="text-align:right">−${$(c.resumen.gastado_efectivo)}</td></tr>` : ""}
-      <tr class="t"><td>EFECTIVO ESPERADO</td><td style="text-align:right">${$(c.efectivo_esperado)}</td></tr>
-      <tr><td>Efectivo contado</td><td style="text-align:right">${$(c.efectivo_contado)}</td></tr>
-      <tr class="t"><td>DIFERENCIA</td><td style="text-align:right">${$(c.diferencia)}</td></tr></table>
-      ${c.notas ? `<p>Notas: ${c.notas}</p>` : ""}<br><br><br><div style="width:220px;border-top:1px solid #000;text-align:center">Firma</div></body></html>`);
-    w.document.close(); w.focus(); w.print();
-  };
+  const sucNombre = () => { const x = sucursales.find((y) => y.id === sucursal); return x ? `${x.codigo} - ${x.nombre}` : ""; };
+  const datosDe = (c: Corte): DatosCorte => ({ titulo: `Corte de caja ${c.serie} ${c.folio}`, sucursal: sucNombre(), empresa,
+    realizo: c.usuario_id ? nombres[c.usuario_id] ?? "" : "", contado: Number(c.efectivo_contado), notas: c.notas });
+  const datosEnCurso = (): DatosCorte => ({ titulo: "Corte de caja (en curso)", sucursal: sucNombre(), empresa, contado: contado === "" ? null : Number(contado), notas });
+  const archivo = (folio: string, hasta: string) => `Corte_${(sucursales.find((y) => y.id === sucursal)?.codigo ?? "")}_${folio}_${new Date(hasta).toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" })}.xlsx`;
+  const imprimir = (c: Corte) => imprimirCorte(c.resumen, datosDe(c));
 
   return (
     <div className="p-3 sm:p-5 flex flex-col gap-4">
@@ -188,6 +222,13 @@ export default function CorteCaja() {
             <div className="barra-seccion flex-1">Corte en curso</div>
             <span className="text-sm text-[var(--tenue)]">Desde {fechaMx(r.desde)} hasta ahora</span>
           </div>
+          <div className="flex gap-2 justify-end -mt-2">
+            <button className="px-3 py-1.5 rounded border border-[var(--borde)] text-sm" onClick={() => imprimirCorte(r, datosEnCurso())}>Imprimir</button>
+            <button className="px-3 py-1.5 rounded border border-[var(--borde)] text-sm" onClick={() => excelCorte(r, datosEnCurso(), archivo("en-curso", r.hasta))}>Exportar a Excel</button>
+          </div>
+          {r.ventas !== undefined
+            ? <div><h2 className="font-medium mb-1">Ventas</h2><VentasCorte ventas={r.ventas} /></div>
+            : <div className="text-sm text-[var(--tenue)]">Para ver el detalle de ventas falta ejecutar la migración 20261119000041_corte_ventas.sql en Supabase.</div>}
           <TablaFormas titulo="Entradas" lineas={r.entradas} signo="+" />
           <TablaFormas titulo="Devoluciones de dinero" lineas={r.salidas} signo="−" />
 
@@ -242,11 +283,8 @@ export default function CorteCaja() {
               </>)}
             </div>
             <div className="text-sm">
-              <h2 className="font-medium mb-1">Efectivo</h2>
-              <div className="flex justify-between px-2 py-1 bg-[#f4f7f6]"><span>(+) Efectivo recibido (neto de devoluciones)</span><span>{$(Number(r.efectivo_esperado) + Number(r.retirado) + Number(r.gastado_efectivo ?? 0))}</span></div>
-              <div className="flex justify-between px-2 py-1"><span>(−) Retiros</span><span>{$(r.retirado)}</span></div>
-              {r.gastos !== undefined && <div className="flex justify-between px-2 py-1 bg-[#f4f7f6]"><span>(−) Gastos pagados en efectivo</span><span>{$(r.gastado_efectivo ?? 0)}</span></div>}
-              <div className="flex justify-between px-2 py-1.5 mt-1 text-white font-semibold rounded" style={{ background: "var(--acento)" }}><span>Efectivo esperado en caja</span><span>{$(r.efectivo_esperado)}</span></div>
+              <h2 className="font-medium mb-1">Cuadre de efectivo</h2>
+              <Cuadre r={r} contado={contado === "" ? null : Number(contado)} />
               <div className="grid grid-cols-2 gap-3 mt-3 items-end">
                 <label>Efectivo contado<input className="campo text-right" inputMode="decimal" value={contado} onChange={(e) => setContado(e.target.value)} placeholder="0.00" /></label>
                 <div className={`text-right ${diferencia === null ? "text-[var(--tenue)]" : diferencia === 0 ? "text-emerald-700" : "text-[var(--peligro)]"} font-semibold`}>
@@ -284,6 +322,9 @@ export default function CorteCaja() {
                 {abierto === c.id && (
                   <tr><td colSpan={8} className="p-3 bg-[#fafcfb]">
                     <div className="flex flex-col gap-3">
+                      <div className="flex justify-end"><button className="px-3 py-1.5 rounded border border-[var(--borde)] text-sm" onClick={() => excelCorte(c.resumen, datosDe(c), archivo(`${c.serie}${c.folio}`, c.hasta))}>Exportar a Excel</button></div>
+                      {c.resumen.ventas && <VentasCorte ventas={c.resumen.ventas} />}
+                      <div className="grid gap-4 lg:grid-cols-2"><div /><Cuadre r={c.resumen} contado={Number(c.efectivo_contado)} /></div>
                       <TablaFormas titulo="Entradas" lineas={c.resumen.entradas} signo="+" />
                       <TablaFormas titulo="Devoluciones de dinero" lineas={c.resumen.salidas} signo="−" />
                       {!!c.resumen.gastos?.length && <div className="text-sm">Gastos: {c.resumen.gastos.map((x) => `${x.categoria} · ${x.concepto} ${$(x.importe)} (${FORMAS_PAGO[x.forma] ?? x.forma})`).join(" · ")}</div>}

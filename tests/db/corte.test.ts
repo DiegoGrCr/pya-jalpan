@@ -1,6 +1,6 @@
 /** 0039: corte de caja semanal con retiros y dos totales (general y efectivo). */
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
-import { startDb, stopDb, seed, rpc, key, Seed } from "./setup";
+import { startDb, stopDb, seed, rpc, key, asUser, Seed } from "./setup";
 
 let s: Seed;
 beforeAll(async () => { await startDb(); s = await seed(); }, 180_000);
@@ -40,5 +40,21 @@ describe("gastos", () => {
     await expect(rpc(s.cajeroA, "registrar_retiro", { idempotency_key: key(), sucursal_id: s.sucA, tipo: "gasto", importe: 10, concepto: "X" })).rejects.toThrow(/categoría/);
     const t = await rpc(s.cajeroA, "tablero", {});
     expect(Number(t.periodo.gastos)).toBeGreaterThanOrEqual(500);
+  });
+});
+
+describe("ventas del corte", () => {
+  it("lista cada venta del periodo con lo cobrado por forma; las canceladas en cero", async () => {
+    const v1 = await venta([{ forma: "efectivo", importe: 360 }, { forma: "tarjeta_credito", importe: 360 }]);
+    const v2 = await venta([{ forma: "efectivo", importe: 720 }]);
+    await asUser(s.cajeroA, (c) => c.query(`select public.cancelar_venta($1, 'Prueba')`, [v2.venta_id]));
+    const r = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    const a = r.ventas.find((x: { id: string }) => x.id === v1.venta_id);
+    expect(Number(a.pagos.efectivo)).toBe(360);
+    expect(Number(a.pagos.tarjeta_credito)).toBe(360);
+    expect(a.anterior).toBe(false);
+    const b = r.ventas.find((x: { id: string }) => x.id === v2.venta_id);
+    expect(b.estado).toBe("cancelada");
+    expect(b.pagos).toEqual({});
   });
 });
