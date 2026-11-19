@@ -24,7 +24,18 @@ export default function FichaCliente() {
   const [movs, setMovs] = useState<Mov[] | null>(null);
   const [ventas, setVentas] = useState<Venta[]>([]);
   const [pestana, setPestana] = useState<"cartera" | "ventas" | "datos">("cartera");
-  const [abono, setAbono] = useState<{ clave: string; importe: string; forma: string; referencia: string } | null>(null);
+  const [abono, setAbono] = useState<{ clave: string; importe: string; forma: string; referencia: string; sucursal: string } | null>(null);
+  const [sucursales, setSucursales] = useState<{ id: string; codigo: string; nombre: string }[]>([]);
+  useEffect(() => {
+    (async () => {
+      const sb = supabase();
+      const { data: { user } } = await sb.auth.getUser();
+      const { data } = await sb.from("usuario_sucursales").select("sucursales(id, codigo, nombre)").eq("user_id", user?.id ?? "");
+      let suc = ((data ?? []) as unknown as { sucursales: { id: string; codigo: string; nombre: string } | null }[]).map((x) => x.sucursales).filter((x): x is { id: string; codigo: string; nombre: string } => !!x);
+      if (!suc.length) suc = ((await sb.from("sucursales").select("id, codigo, nombre").eq("activa", true).order("codigo")).data ?? []) as { id: string; codigo: string; nombre: string }[];
+      setSucursales(suc);
+    })();
+  }, []);
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [trabajando, setTrabajando] = useState(false);
 
@@ -61,7 +72,7 @@ export default function FichaCliente() {
     if (!abono) return;
     setTrabajando(true);
     try {
-      const { error } = await supabase().rpc("abonar_saldo_favor", { p: { idempotency_key: abono.clave, cliente_id: id, importe: abono.importe, forma: abono.forma, referencia: abono.referencia || null } });
+      const { error } = await supabase().rpc("abonar_saldo_favor", { p: { idempotency_key: abono.clave, cliente_id: id, importe: abono.importe, forma: abono.forma, referencia: abono.referencia || null, sucursal_id: abono.sucursal || null } });
       if (error) {
         if (/abonar_saldo_favor/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000038_cartera_devoluciones.sql en Supabase.");
         throw error;
@@ -112,7 +123,7 @@ export default function FichaCliente() {
               {movs === null ? <div className="text-[var(--tenue)]">Para ver la cartera falta ejecutar la migración 20261118000027 o 0038 en Supabase.</div> : <>
                 <div className="flex justify-between items-center flex-wrap gap-2 mb-3">
                   <p className="text-[var(--tenue)]">El saldo a favor se usa al vender con la forma de pago “Saldo a favor”.</p>
-                  {!c.es_publico_general && <button className="btn-primario" onClick={() => setAbono({ clave: crypto.randomUUID(), importe: "", forma: "efectivo", referencia: "" })}>Abonar a saldo a favor</button>}
+                  {!c.es_publico_general && <button className="btn-primario" onClick={() => setAbono({ clave: crypto.randomUUID(), importe: "", forma: "efectivo", referencia: "", sucursal: sucursales[0]?.id ?? "" })}>Abonar a saldo a favor</button>}
                 </div>
                 <table className="w-full">
                   <thead style={{ color: "var(--acento)" }}><tr className="text-left border-b border-[var(--borde)]">
@@ -176,6 +187,11 @@ export default function FichaCliente() {
                 <select className="campo" value={abono.forma} onChange={(e) => setAbono({ ...abono, forma: e.target.value })}>
                   <option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option>
                   <option value="tarjeta_debito">Tarjeta de débito</option><option value="tarjeta_credito">Tarjeta de crédito</option>
+                </select>
+              </label>
+              <label className="sm:col-span-2">Sucursal donde se recibe (entra en su corte)
+                <select className="campo" value={abono.sucursal} onChange={(e) => setAbono({ ...abono, sucursal: e.target.value })}>
+                  {sucursales.map((x) => <option key={x.id} value={x.id}>{x.codigo} - {x.nombre}</option>)}
                 </select>
               </label>
               <label className="sm:col-span-2">Referencia / nota<input className="campo" value={abono.referencia} onChange={(e) => setAbono({ ...abono, referencia: e.target.value })} /></label>

@@ -1,0 +1,29 @@
+/** 0039: corte de caja semanal con retiros y dos totales (general y efectivo). */
+import { beforeAll, afterAll, describe, it, expect } from "vitest";
+import { startDb, stopDb, seed, rpc, key, Seed } from "./setup";
+
+let s: Seed;
+beforeAll(async () => { await startDb(); s = await seed(); }, 180_000);
+afterAll(async () => { await stopDb(); });
+
+const venta = (pagos: object[], total = 720) => rpc(s.cajeroA, "confirmar_venta", { idempotency_key: key(), sucursal_id: s.sucA, almacen_id: s.almA, tipo: "contado",
+  partidas: [{ producto_id: s.piso.id, unidad_venta_id: s.piso.caja, cantidad: total / 360, precio_unitario: 360 }], pagos });
+
+describe("corte de caja", () => {
+  it("suma por forma, resta retiros del efectivo y cierra con diferencia", async () => {
+    const antes = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    await venta([{ forma: "efectivo", importe: 1000 }]);             // 720 en efectivo (cambio 280)
+    await venta([{ forma: "tarjeta_debito", importe: 720 }]);
+    await venta([{ forma: "efectivo", importe: 360 }, { forma: "transferencia", importe: 360 }]);
+    await rpc(s.cajeroA, "registrar_retiro", { idempotency_key: key(), sucursal_id: s.sucA, importe: 500, concepto: "Retiro para depósito" });
+    const r = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    expect(Number(r.total_general) - Number(antes.total_general)).toBe(2160);
+    expect(Number(r.efectivo_esperado) - Number(antes.efectivo_esperado)).toBe(720 + 360 - 500);
+    expect(Number(r.retirado)).toBe(500);
+    const c = await rpc(s.cajeroA, "cerrar_corte", { idempotency_key: key(), sucursal_id: s.sucA, efectivo_contado: Number(r.efectivo_esperado) - 10 });
+    expect(c.serie).toBeTruthy();
+    const nuevo = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    expect(Number(nuevo.total_general)).toBe(0);
+    expect(nuevo.retiros).toHaveLength(0);
+  });
+});
