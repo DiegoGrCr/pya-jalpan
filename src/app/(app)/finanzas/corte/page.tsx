@@ -1,18 +1,21 @@
 "use client";
 /**
  * Finanzas › Corte de caja (por sucursal, normalmente semanal).
- * Corte en curso desde el último corte: entradas por forma de pago, devoluciones y retiros de efectivo.
+ * Corte en curso desde el último corte: entradas por forma de pago, devoluciones, retiros de efectivo y gastos.
  * Dos totales: total general (todas las formas) y efectivo esperado en caja. Se cierra con el efectivo contado.
  */
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { FORMAS_PAGO, fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
+import { CATEGORIAS_GASTO, FORMAS_GASTO } from "@/lib/gastos";
 
 interface Linea { concepto: string; forma: string; importe: number }
 interface Retiro { id: string; fecha: string; importe: number; concepto: string; usuario: string | null }
+interface Gasto extends Retiro { categoria: string; forma: string; proveedor: string | null }
 interface Resumen {
   desde: string; hasta: string; entradas: Linea[]; salidas: Linea[]; retiros: Retiro[]; retirado: number;
+  gastos?: Gasto[]; gastado?: number; gastado_efectivo?: number; neto?: number;
   total_general: number; efectivo_esperado: number; por_forma: Record<string, number>;
 }
 interface Corte {
@@ -52,7 +55,10 @@ export default function CorteCaja() {
   const [nombres, setNombres] = useState<Record<string, string>>({});
   const [contado, setContado] = useState("");
   const [notas, setNotas] = useState("");
-  const [retiro, setRetiro] = useState<{ clave: string; importe: string; concepto: string } | null>(null);
+  const [retiro, setRetiro] = useState<{ clave: string; tipo: "retiro" | "gasto"; importe: string; concepto: string;
+    categoria: string; forma: string; proveedor: string; fecha: string } | null>(null);
+  const nuevoMov = (tipo: "retiro" | "gasto") => setRetiro({ clave: crypto.randomUUID(), tipo, importe: "", concepto: "", categoria: "", forma: "efectivo", proveedor: "",
+    fecha: new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" }) });
   const [abierto, setAbierto] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [trabajando, setTrabajando] = useState(false);
@@ -100,13 +106,25 @@ export default function CorteCaja() {
     if (!retiro) return;
     setTrabajando(true);
     try {
-      const { error } = await supabase().rpc("registrar_retiro", { p: { idempotency_key: retiro.clave, sucursal_id: sucursal, importe: retiro.importe, concepto: retiro.concepto } });
+      const hoyMx = new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+      const base = { idempotency_key: retiro.clave, sucursal_id: sucursal, importe: retiro.importe, concepto: retiro.concepto };
+      const p = retiro.tipo === "retiro" ? base : {
+        ...base, tipo: "gasto", categoria: retiro.categoria, forma: retiro.forma, proveedor: retiro.proveedor || null,
+        // fecha anterior: a mediodía de ese día; hoy: la hora actual
+        fecha: retiro.fecha && retiro.fecha !== hoyMx ? `${retiro.fecha}T12:00:00-06:00` : null,
+      };
+      // sin la migración 0040 el gasto se guardaría como retiro: comprobar antes
+      if (retiro.tipo === "gasto") {
+        const { error: e2 } = await supabase().from("retiros_caja").select("tipo").limit(1);
+        if (e2) throw new Error("Falta ejecutar la migración 20261119000040_gastos.sql en Supabase.");
+      }
+      const { error } = await supabase().rpc("registrar_retiro", { p });
       if (error) throw error;
-      setRetiro(null); setMsg({ tipo: "ok", texto: "Retiro registrado." }); await cargar();
+      setMsg({ tipo: "ok", texto: retiro.tipo === "gasto" ? "Gasto registrado." : "Retiro registrado." }); setRetiro(null); await cargar();
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
   };
   const cancelarRetiro = async (x: Retiro) => {
-    if (!window.confirm(`¿Cancelar el retiro de ${$(x.importe)} (${x.concepto})?`)) return;
+    if (!window.confirm(`¿Cancelar ${"categoria" in x ? "el gasto" : "el retiro"} de ${$(x.importe)} (${x.concepto})?`)) return;
     const { error } = await supabase().rpc("cancelar_retiro", { p_id: x.id });
     if (error) { setMsg({ tipo: "error", texto: mensajeError(error) }); return; }
     await cargar();
@@ -137,9 +155,12 @@ export default function CorteCaja() {
       <h3>Entradas</h3><table>${c.resumen.entradas.map(fila).join("") || "<tr><td>Sin entradas</td></tr>"}</table>
       <h3>Devoluciones</h3><table>${c.resumen.salidas.map(fila).join("") || "<tr><td>Sin devoluciones</td></tr>"}</table>
       <h3>Retiros de efectivo</h3><table>${c.resumen.retiros.map((x) => `<tr><td>${fechaMx(x.fecha)}</td><td>${x.concepto}</td><td style="text-align:right">${$(x.importe)}</td></tr>`).join("") || "<tr><td>Sin retiros</td></tr>"}</table>
+      ${c.resumen.gastos?.length ? `<h3>Gastos</h3><table>${c.resumen.gastos.map((x) => `<tr><td>${fechaMx(x.fecha)}</td><td>${x.categoria}</td><td>${x.concepto}${x.proveedor ? ` · ${x.proveedor}` : ""}</td><td>${FORMAS_PAGO[x.forma] ?? x.forma}</td><td style="text-align:right">${$(x.importe)}</td></tr>`).join("")}</table>` : ""}
       <table>${FORMAS.map((f) => `<tr><td>${FORMAS_PAGO[f]}</td><td style="text-align:right">${$(c.resumen.por_forma?.[f] ?? 0)}</td></tr>`).join("")}
       <tr class="t"><td>TOTAL GENERAL</td><td style="text-align:right">${$(c.total_general)}</td></tr>
+      ${c.resumen.gastado ? `<tr><td>Gastos</td><td style="text-align:right">−${$(c.resumen.gastado)}</td></tr><tr class="t"><td>INGRESOS MENOS GASTOS</td><td style="text-align:right">${$(c.resumen.neto ?? 0)}</td></tr>` : ""}
       <tr><td>Retiros</td><td style="text-align:right">−${$(c.resumen.retirado)}</td></tr>
+      ${c.resumen.gastado_efectivo ? `<tr><td>Gastos pagados en efectivo</td><td style="text-align:right">−${$(c.resumen.gastado_efectivo)}</td></tr>` : ""}
       <tr class="t"><td>EFECTIVO ESPERADO</td><td style="text-align:right">${$(c.efectivo_esperado)}</td></tr>
       <tr><td>Efectivo contado</td><td style="text-align:right">${$(c.efectivo_contado)}</td></tr>
       <tr class="t"><td>DIFERENCIA</td><td style="text-align:right">${$(c.diferencia)}</td></tr></table>
@@ -173,13 +194,33 @@ export default function CorteCaja() {
           <div>
             <div className="flex justify-between items-center mb-1">
               <h2 className="font-medium">Retiros de efectivo</h2>
-              <button className="btn-primario" onClick={() => setRetiro({ clave: crypto.randomUUID(), importe: "", concepto: "" })}>+ Registrar retiro</button>
+              <button className="btn-primario" onClick={() => nuevoMov("retiro")}>+ Registrar retiro</button>
             </div>
             {r.retiros.length === 0 ? <div className="text-sm text-[var(--tenue)]">Sin retiros en este corte.</div> : (
               <table className="w-full text-sm"><tbody>
                 {r.retiros.map((x) => (
                   <tr key={x.id} className="border-b border-[var(--borde)]">
                     <td className="py-1.5 pr-3 whitespace-nowrap">{fechaMx(x.fecha)}</td><td className="pr-3">{x.concepto}</td>
+                    <td className="pr-3 text-[var(--tenue)]">{x.usuario ?? ""}</td><td className="pr-3 text-right">{$(x.importe)}</td>
+                    <td className="text-right"><button className="underline text-xs text-[var(--peligro)]" onClick={() => cancelarRetiro(x)}>Cancelar</button></td>
+                  </tr>
+                ))}
+              </tbody></table>
+            )}
+          </div>
+
+          <div>
+            <div className="flex justify-between items-center mb-1">
+              <h2 className="font-medium">Gastos</h2>
+              <button className="btn-primario" onClick={() => nuevoMov("gasto")}>+ Registrar gasto</button>
+            </div>
+            {!r.gastos?.length ? <div className="text-sm text-[var(--tenue)]">Sin gastos en este corte.</div> : (
+              <table className="w-full text-sm"><tbody>
+                {r.gastos.map((x) => (
+                  <tr key={x.id} className="border-b border-[var(--borde)]">
+                    <td className="py-1.5 pr-3 whitespace-nowrap">{fechaMx(x.fecha)}</td><td className="pr-3 whitespace-nowrap">{x.categoria}</td>
+                    <td className="pr-3">{x.concepto}{x.proveedor ? <span className="text-[var(--tenue)]"> · {x.proveedor}</span> : null}</td>
+                    <td className="pr-3 whitespace-nowrap">{FORMAS_PAGO[x.forma] ?? x.forma}</td>
                     <td className="pr-3 text-[var(--tenue)]">{x.usuario ?? ""}</td><td className="pr-3 text-right">{$(x.importe)}</td>
                     <td className="text-right"><button className="underline text-xs text-[var(--peligro)]" onClick={() => cancelarRetiro(x)}>Cancelar</button></td>
                   </tr>
@@ -195,11 +236,16 @@ export default function CorteCaja() {
                 <div key={f} className="flex justify-between px-2 py-1 odd:bg-[#f4f7f6]"><span>{FORMAS_PAGO[f]}</span><span>{$(r.por_forma?.[f] ?? 0)}</span></div>
               ))}
               <div className="flex justify-between px-2 py-1.5 mt-1 text-white font-semibold rounded" style={{ background: "var(--acento)" }}><span>Total general</span><span>{$(r.total_general)}</span></div>
+              {r.gastos !== undefined && (<>
+                <div className="flex justify-between px-2 py-1 mt-1"><span>(−) Gastos (todas las formas)</span><span>{$(r.gastado ?? 0)}</span></div>
+                <div className="flex justify-between px-2 py-1.5 font-semibold border-t border-[var(--borde)]"><span>Ingresos menos gastos</span><span>{$(r.neto ?? r.total_general)}</span></div>
+              </>)}
             </div>
             <div className="text-sm">
               <h2 className="font-medium mb-1">Efectivo</h2>
-              <div className="flex justify-between px-2 py-1 bg-[#f4f7f6]"><span>(+) Efectivo recibido (neto de devoluciones)</span><span>{$(Number(r.efectivo_esperado) + Number(r.retirado))}</span></div>
+              <div className="flex justify-between px-2 py-1 bg-[#f4f7f6]"><span>(+) Efectivo recibido (neto de devoluciones)</span><span>{$(Number(r.efectivo_esperado) + Number(r.retirado) + Number(r.gastado_efectivo ?? 0))}</span></div>
               <div className="flex justify-between px-2 py-1"><span>(−) Retiros</span><span>{$(r.retirado)}</span></div>
+              {r.gastos !== undefined && <div className="flex justify-between px-2 py-1 bg-[#f4f7f6]"><span>(−) Gastos pagados en efectivo</span><span>{$(r.gastado_efectivo ?? 0)}</span></div>}
               <div className="flex justify-between px-2 py-1.5 mt-1 text-white font-semibold rounded" style={{ background: "var(--acento)" }}><span>Efectivo esperado en caja</span><span>{$(r.efectivo_esperado)}</span></div>
               <div className="grid grid-cols-2 gap-3 mt-3 items-end">
                 <label>Efectivo contado<input className="campo text-right" inputMode="decimal" value={contado} onChange={(e) => setContado(e.target.value)} placeholder="0.00" /></label>
@@ -240,6 +286,7 @@ export default function CorteCaja() {
                     <div className="flex flex-col gap-3">
                       <TablaFormas titulo="Entradas" lineas={c.resumen.entradas} signo="+" />
                       <TablaFormas titulo="Devoluciones de dinero" lineas={c.resumen.salidas} signo="−" />
+                      {!!c.resumen.gastos?.length && <div className="text-sm">Gastos: {c.resumen.gastos.map((x) => `${x.categoria} · ${x.concepto} ${$(x.importe)} (${FORMAS_PAGO[x.forma] ?? x.forma})`).join(" · ")}</div>}
                       <div className="text-sm">Retiros: {c.resumen.retiros.length ? c.resumen.retiros.map((x) => `${x.concepto} ${$(x.importe)}`).join(" · ") : "ninguno"}</div>
                       {c.notas && <div className="text-sm">Notas: {c.notas}</div>}
                     </div>
@@ -254,15 +301,34 @@ export default function CorteCaja() {
 
       {retiro && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3" onClick={() => setRetiro(null)}>
-          <div role="dialog" aria-label="Registrar retiro" className="bg-[var(--panel)] rounded-md shadow-lg w-full max-w-md p-5 text-sm" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold">Registrar retiro de efectivo</h2>
-            <div className="grid gap-3 mt-3">
+          <div role="dialog" aria-label={retiro.tipo === "gasto" ? "Registrar gasto" : "Registrar retiro"} className="bg-[var(--panel)] rounded-md shadow-lg w-full max-w-md p-5 text-sm" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-semibold">{retiro.tipo === "gasto" ? "Registrar gasto" : "Registrar retiro de efectivo"}</h2>
+            <p className="text-[var(--tenue)] mt-1">{retiro.tipo === "gasto"
+              ? "Algo que se pagó con dinero de la sucursal. Si fue en efectivo, se descuenta del efectivo esperado en caja."
+              : "Dinero que sale de la caja sin ser un gasto (depósito al banco, entrega al dueño)."}</p>
+            <div className="grid gap-3 mt-3 sm:grid-cols-2">
               <label>Importe<input className="campo" inputMode="decimal" autoFocus value={retiro.importe} onChange={(e) => setRetiro({ ...retiro, importe: e.target.value })} /></label>
-              <label>Concepto<input className="campo" placeholder="p. ej. Depósito al banco, pago a proveedor…" value={retiro.concepto} onChange={(e) => setRetiro({ ...retiro, concepto: e.target.value })} /></label>
+              {retiro.tipo === "gasto" && (
+                <label>Categoría
+                  <select className="campo" value={retiro.categoria} onChange={(e) => setRetiro({ ...retiro, categoria: e.target.value })}>
+                    <option value="">Elige…</option>{CATEGORIAS_GASTO.map((c) => <option key={c}>{c}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="sm:col-span-2">Concepto<input className="campo" placeholder={retiro.tipo === "gasto" ? "p. ej. Flete de material, garrafones de agua…" : "p. ej. Depósito al banco"} value={retiro.concepto} onChange={(e) => setRetiro({ ...retiro, concepto: e.target.value })} /></label>
+              {retiro.tipo === "gasto" && (<>
+                <label>Forma de pago
+                  <select className="campo" value={retiro.forma} onChange={(e) => setRetiro({ ...retiro, forma: e.target.value })}>
+                    {FORMAS_GASTO.map((f) => <option key={f} value={f}>{FORMAS_PAGO[f]}</option>)}
+                  </select>
+                </label>
+                <label>Fecha<input type="date" className="campo" value={retiro.fecha} max={new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" })} onChange={(e) => setRetiro({ ...retiro, fecha: e.target.value })} /></label>
+                <label className="sm:col-span-2">Proveedor / a quién se pagó (opcional)<input className="campo" value={retiro.proveedor} onChange={(e) => setRetiro({ ...retiro, proveedor: e.target.value })} /></label>
+              </>)}
             </div>
             <div className="flex justify-end gap-3 mt-4">
               <button className="px-4 py-2 rounded border border-[var(--borde)]" onClick={() => setRetiro(null)}>Cancelar</button>
-              <button className="btn-primario" disabled={trabajando || !(Number(retiro.importe) > 0) || !retiro.concepto.trim()} onClick={guardarRetiro}>{trabajando ? "Guardando…" : "Registrar"}</button>
+              <button className="btn-primario" disabled={trabajando || !(Number(retiro.importe) > 0) || !retiro.concepto.trim() || (retiro.tipo === "gasto" && !retiro.categoria)} onClick={guardarRetiro}>{trabajando ? "Guardando…" : "Registrar"}</button>
             </div>
           </div>
         </div>

@@ -27,3 +27,18 @@ describe("corte de caja", () => {
     expect(nuevo.retiros).toHaveLength(0);
   });
 });
+
+describe("gastos", () => {
+  it("un gasto en efectivo baja la caja; por transferencia solo cuenta como gasto", async () => {
+    const a = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    await rpc(s.cajeroA, "registrar_retiro", { idempotency_key: key(), sucursal_id: s.sucA, tipo: "gasto", importe: 200, concepto: "Flete", categoria: "Fletes y transporte" });
+    await rpc(s.cajeroA, "registrar_retiro", { idempotency_key: key(), sucursal_id: s.sucA, tipo: "gasto", importe: 300, concepto: "Luz", categoria: "Luz y agua", forma: "transferencia" });
+    const b = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    expect(Number(b.efectivo_esperado)).toBe(Number(a.efectivo_esperado) - 200);
+    expect(Number(b.gastado)).toBe(Number(a.gastado ?? 0) + 500);
+    expect(Number(b.neto)).toBe(Number(b.total_general) - Number(b.gastado));
+    await expect(rpc(s.cajeroA, "registrar_retiro", { idempotency_key: key(), sucursal_id: s.sucA, tipo: "gasto", importe: 10, concepto: "X" })).rejects.toThrow(/categoría/);
+    const t = await rpc(s.cajeroA, "tablero", {});
+    expect(Number(t.periodo.gastos)).toBeGreaterThanOrEqual(500);
+  });
+});

@@ -38,6 +38,7 @@ export const MENU: Grupo[] = [
     { texto: "Cuentas por cobrar", href: "/finanzas/cuentas-por-cobrar" },
     { texto: "Pagos de clientes", href: "/finanzas/pagos" },
     { texto: "Corte de caja", href: "/finanzas/corte" },
+    { texto: "Gastos", href: "/finanzas/gastos" },
   ] },
   { texto: "Créditos", icono: "▭", items: [
     { texto: "Estado de cuenta de clientes", href: "/creditos/estado-de-cuenta" },

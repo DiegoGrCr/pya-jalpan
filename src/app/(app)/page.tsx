@@ -16,7 +16,7 @@ interface Tablero {
   desde: string; hasta: string;
   ventas_mes: { mes: string; total: number; ventas: number }[];
   cobros_mes: { mes: string; cobrado: number; devuelto: number }[];
-  periodo: { ventas_total: number; num_ventas: number; descuentos: number; cobrado: number; devoluciones: number; por_cerrar: number };
+  periodo: { ventas_total: number; num_ventas: number; descuentos: number; cobrado: number; devoluciones: number; por_cerrar: number; gastos?: number };
   capital: { cxc: number; cxc_vencida: number; num_con_saldo: number; inventario: number; saldo_favor: number };
   categorias: { categoria: string; total: number }[];
   productos: ProdTop[];
@@ -196,8 +196,9 @@ export default function Inicio() {
                 <h2 className="text-base mb-1">Ingresos / egresos del periodo</h2>
                 <Fila signo="+" k="Ventas cobradas" v={Number(p.cobrado)} />
                 <Fila signo="−" k="Devoluciones" v={Number(p.devoluciones)} />
-                <Fila signo="=" k="Total" v={Number(p.cobrado) - Number(p.devoluciones)} total />
-                <p className="text-xs text-[var(--tenue)] mt-1">Compras y gastos aparecerán aquí cuando se registren en el sistema.</p>
+                <Fila signo="−" k="Gastos pagados" v={Number(p.gastos ?? 0)} />
+                <Fila signo="=" k="Total" v={Number(p.cobrado) - Number(p.devoluciones) - Number(p.gastos ?? 0)} total />
+                <p className="text-xs text-[var(--tenue)] mt-1">Las compras aparecerán aquí cuando se registren en el sistema.</p>
               </div>
               <div>
                 <h2 className="text-base mb-1">Capital de trabajo</h2>
