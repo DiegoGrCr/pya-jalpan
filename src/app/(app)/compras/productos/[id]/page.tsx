@@ -8,7 +8,7 @@ import { PRODUCTO_VACIO, ProductoForm as Datos, Presentacion } from "@/lib/produ
 interface Fila {
   id: string; sku: string; nombre: string; formato: string | null; presentacion: Presentacion; unidad_base: string;
   piezas_por_caja: number | null; m2_por_caja: string | null; precio_m2: string | null; codigo_barras: string | null;
-  comentarios: string | null; activo: boolean; tipo: "producto" | "servicio"; marcas: { nombre: string } | null; categorias: { nombre: string } | null;
+  comentarios: string | null; activo: boolean; tipo: "producto" | "servicio"; imagen_url: string | null; marcas: { nombre: string } | null; categorias: { nombre: string } | null;
   unidades_venta: { nombre: string; es_base: boolean; precios: { precio: string; lista_id: string }[] }[];
 }
 
@@ -22,7 +22,7 @@ export default function EditarProducto({ params }: { params: Promise<{ id: strin
       try {
         const sb = supabase();
         const [{ data, error }, lp] = await Promise.all([
-          sb.from("productos").select("id, sku, nombre, formato, presentacion, unidad_base, piezas_por_caja, m2_por_caja, precio_m2, codigo_barras, comentarios, activo, tipo, marcas(nombre), categorias(nombre), unidades_venta(nombre, es_base, precios(precio, lista_id))").eq("id", id).maybeSingle(),
+          sb.from("productos").select("id, sku, nombre, formato, presentacion, unidad_base, piezas_por_caja, m2_por_caja, precio_m2, codigo_barras, comentarios, activo, tipo, imagen_url, marcas(nombre), categorias(nombre), unidades_venta(nombre, es_base, precios(precio, lista_id))").eq("id", id).maybeSingle(),
           sb.from("listas_precios").select("id").eq("predeterminada", true).maybeSingle(),
         ]);
         if (error) throw error;
@@ -39,7 +39,7 @@ export default function EditarProducto({ params }: { params: Promise<{ id: strin
           unidad: p.unidad_base, marca: p.marcas?.nombre ?? "", categoria: p.categorias?.nombre ?? "",
           piezas_por_caja: p.piezas_por_caja?.toString() ?? "", m2_por_caja: p.m2_por_caja ? String(Number(p.m2_por_caja)) : "",
           precio_m2: p.precio_m2 ?? "", codigo_barras: p.codigo_barras ?? "", comentarios: p.comentarios ?? "", activo: p.activo,
-          tipo: p.tipo, nombre_libre: !!lib?.nombre_libre, precio_libre: !!lib?.precio_libre,
+          tipo: p.tipo, imagen_url: p.imagen_url, nombre_libre: !!lib?.nombre_libre, precio_libre: !!lib?.precio_libre,
           precio: p.presentacion === "unidad" ? precio(base) : "",
           // Si el precio guardado no coincide con el calculado desde m² (sin redondeo), se escribió a mano
           ...(() => {

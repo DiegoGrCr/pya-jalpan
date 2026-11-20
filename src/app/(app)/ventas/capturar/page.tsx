@@ -152,7 +152,7 @@ export default function CapturarVenta() {
     const { data, error } = await supabase().from("cotizaciones").select(`id, serie, folio, sucursal_id, almacen_id, vigencia, estado, comentarios, sin_iva, prospecto,
       clientes(${CLIENTE_COLS}),
       cotizacion_partidas(renglon, unidad_venta_id, cantidad, precio_unitario, descuento, comentario,
-        productos(id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, presentacion, m2_por_caja, piezas_por_caja, formato,
+        productos(id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, imagen_url, presentacion, m2_por_caja, piezas_por_caja, formato,
           unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))))`).eq("id", id).maybeSingle();
     if (error) {
       if (/sin_iva|comentario/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000037_cotizaciones.sql en Supabase.");
@@ -188,7 +188,7 @@ export default function CapturarVenta() {
     const { data, error } = await sb.from("ventas").select(`id, serie, folio, sucursal_id, almacen_id, tipo, con_abono, pagado, comentarios, orden_compra, sin_iva, cerrada, estado,
       clientes(${CLIENTE_COLS}),
       venta_partidas(id, renglon, unidad_venta_id, cantidad, cantidad_entregada, precio_unitario, descuento, comentario, almacen_id,
-        productos(id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, presentacion, m2_por_caja, piezas_por_caja, formato,
+        productos(id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, imagen_url, presentacion, m2_por_caja, piezas_por_caja, formato,
           unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))))`).eq("id", id).maybeSingle();
     if (error) {
       if (/cerrada|con_abono|orden_compra/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000027_ventas_editables.sql en Supabase.");
@@ -264,7 +264,7 @@ export default function CapturarVenta() {
       try {
         const consulta = (extra: string) => {
           let q = supabase().from("productos")
-            .select(`id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo${extra}, unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))`)
+            .select(`id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, imagen_url${extra}, unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))`)
             .eq("activo", true).order("sku").limit(30);
           if (t) q = q.or(`sku.ilike.%${t}%,nombre.ilike.%${t}%,codigo_barras.eq.${t}`);
           return q;
@@ -776,9 +776,12 @@ export default function CapturarVenta() {
                 <ul className="absolute z-10 w-full bg-[var(--panel)] border border-[var(--borde)] shadow max-h-72 overflow-auto">
                   {resultados.map((p, i) => (
                     <li key={p.id} onClick={() => agregar(p)}
-                      className="px-3 py-2 cursor-pointer text-sm hover:bg-[var(--resalte)]"
+                      className="px-3 py-1.5 cursor-pointer text-sm hover:bg-[var(--resalte)] flex items-center gap-2"
                       style={i === 0 ? { background: "var(--acento)", color: "white" } : undefined}>
-                      {p.sku} - {nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}
+                      {p.imagen_url
+                        ? <img src={p.imagen_url} alt="" loading="lazy" className="w-8 h-8 object-cover rounded bg-white shrink-0" />
+                        : <span className="w-8 h-8 shrink-0" />}
+                      <span>{p.sku} - {nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}</span>
                     </li>
                   ))}
                 </ul>
@@ -922,6 +925,11 @@ export default function CapturarVenta() {
               Inventario en {detalle.producto.unidad_base}
               {detalle.producto.piezas_por_caja && detalle.producto.m2_por_caja && <> · Caja: {detalle.producto.piezas_por_caja} piezas = {fmtCantidad(detalle.producto.m2_por_caja, 4)} m²</>}
             </div>
+            {detalle.producto.imagen_url && (
+              <a href={detalle.producto.imagen_url} target="_blank" rel="noreferrer" title="Ver foto completa">
+                <img src={detalle.producto.imagen_url} alt={`Foto de ${detalle.producto.nombre}`} className="mt-3 w-full max-h-64 object-contain rounded border border-[var(--borde)] bg-white" />
+              </a>
+            )}
             <table className="w-full mt-3">
               <thead style={{ color: "var(--acento)" }}><tr className="text-left"><th className="font-normal py-1">Almacén</th><th className="font-normal text-right">Existencia</th><th className="font-normal text-right">Apartado</th><th className="font-normal text-right">Disponible</th></tr></thead>
               <tbody>

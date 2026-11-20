@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { mxnPrecio } from "@/lib/unidades";
+import { comprimirFoto, quitarFotoProducto, subirFotoProducto } from "@/lib/fotoProducto";
 import { PRODUCTO_VACIO, ProductoForm as Datos, UNIDADES, aPayload, areaFormato, prefijoSku, preciosPiso, validar } from "@/lib/productos";
 
 export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; esNuevo: boolean }) {
@@ -18,6 +19,30 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
   const [intento, setIntento] = useState(false);
   const [almacenes, setAlmacenes] = useState<{ id: string; nombre: string; suc: string }[]>([]);
   const [ex, setEx] = useState({ almacen: "", cajas: "", sueltas: "", cantidad: "" });
+  // Foto: en un producto nuevo se sube al guardarlo; en uno existente, al elegirla
+  const [foto, setFoto] = useState<{ blob: Blob; vista: string } | null>(null);
+  const [subiendo, setSubiendo] = useState(false);
+
+  const elegirFoto = async (archivo: File | undefined) => {
+    if (!archivo) return;
+    setMsg(null);
+    try {
+      const blob = await comprimirFoto(archivo);
+      if (esNuevo || !f.id) { setFoto({ blob, vista: URL.createObjectURL(blob) }); return; }
+      setSubiendo(true);
+      const url = await subirFotoProducto(f.id, blob, f.imagen_url);
+      setF((x) => ({ ...x, imagen_url: url }));
+      setMsg({ tipo: "ok", texto: "Foto actualizada." });
+    } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setSubiendo(false); }
+  };
+  const quitarFoto = async () => {
+    if (foto) { setFoto(null); return; }
+    if (!f.id || !f.imagen_url || !window.confirm("¿Quitar la foto de este producto?")) return;
+    setSubiendo(true); setMsg(null);
+    try { await quitarFotoProducto(f.id, f.imagen_url); setF((x) => ({ ...x, imagen_url: null })); setMsg({ tipo: "ok", texto: "Foto quitada." }); }
+    catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setSubiendo(false); }
+  };
+  const vistaFoto = foto?.vista ?? f.imagen_url ?? null;
 
   useEffect(() => {
     (async () => {
@@ -45,17 +70,28 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
       const p = aPayload(manualCaja ? f : { ...f, precio_caja: "", precio_pieza: "" });
       const conExistencia = esNuevo && [ex.cajas, ex.sueltas, ex.cantidad].some((v) => Number(v) > 0);
       if (conExistencia && !ex.almacen) throw new Error("Elige el almacén de la existencia inicial.");
-      let data: { sku: string };
+      let data: { sku: string; producto_id?: string };
       if (conExistencia) {
         // Producto + existencia inicial en una sola operación (todo o nada)
         const r = await supabase().rpc("importar_productos", { p: { idempotency_key: crypto.randomUUID(), almacen_id: ex.almacen,
           filas: [{ fila: 1, ...p, cajas: ex.cajas || null, piezas_sueltas: ex.sueltas || null, cantidad: ex.cantidad || null }] } });
         if (r.error) throw r.error;
-        data = { sku: r.data.productos?.[0]?.sku ?? "" };
+        data = { sku: r.data.productos?.[0]?.sku ?? "", producto_id: r.data.productos?.[0]?.producto_id };
       } else {
         const r = await supabase().rpc("guardar_producto", { p });
         if (r.error) throw r.error;
         data = r.data;
+      }
+      if (foto) {
+        // Foto del producto nuevo: el producto ya quedó guardado; si la foto falla se avisa y se puede subir después
+        try {
+          const id = data.producto_id ?? ((await supabase().from("productos").select("id").eq("sku", data.sku).maybeSingle()).data as { id: string } | null)?.id;
+          if (id) await subirFotoProducto(id, foto.blob);
+          setFoto(null);
+        } catch (e) {
+          setMsg({ tipo: "error", texto: `Producto ${data.sku} guardado, pero la foto no se pudo subir: ${mensajeError(e)}` });
+          setGuardando(false); return;
+        }
       }
       setEx((e) => ({ ...e, cajas: "", sueltas: "", cantidad: "" }));
       if (otro) {
@@ -116,6 +152,24 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
           <span className="font-semibold">Tipo:</span>
           <label><input type="radio" disabled={!esNuevo} checked={f.presentacion === "piso"} onChange={() => set("presentacion", "piso")} /> Piso / azulejo (por caja y pieza, precio por m²)</label>
           <label><input type="radio" disabled={!esNuevo} checked={f.presentacion === "unidad"} onChange={() => set("presentacion", "unidad")} /> Otro producto (adhesivo, valvulería, etc.)</label>
+        </div>
+
+        <div className="flex items-center gap-4 text-sm">
+          {vistaFoto
+            ? <a href={vistaFoto} target="_blank" rel="noreferrer" title="Ver foto completa"><img src={vistaFoto} alt={`Foto de ${f.nombre || "producto"}`} className="w-28 h-28 object-cover rounded border border-[var(--borde)] bg-white" /></a>
+            : <div className="w-28 h-28 rounded border border-dashed border-[var(--borde)] flex items-center justify-center text-xs text-[var(--tenue)] text-center px-2">Sin foto</div>}
+          <div className="flex flex-col gap-2">
+            <span className="font-semibold">Foto del producto</span>
+            <span className="text-xs text-[var(--tenue)]">Para reconocerlo en inventario y al vender; no se imprime en las notas.</span>
+            <div className="flex gap-2 flex-wrap">
+              <label className={`btn-primario cursor-pointer ${subiendo ? "opacity-60 pointer-events-none" : ""}`}>
+                {subiendo ? "Subiendo…" : vistaFoto ? "Cambiar foto" : "Subir o tomar foto"}
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => { elegirFoto(e.target.files?.[0]); e.target.value = ""; }} />
+              </label>
+              {vistaFoto && <button className="px-3 py-1.5 rounded border border-[var(--borde)]" disabled={subiendo} onClick={quitarFoto}>Quitar</button>}
+            </div>
+            {foto && <span className="text-xs text-[var(--tenue)]">Se subirá al guardar el producto.</span>}
+          </div>
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

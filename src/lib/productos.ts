@@ -30,6 +30,8 @@ export interface ProductoForm {
   activo: boolean;
   /** Servicio o concepto sin inventario (flete, concepto genérico); 0044: nombre/precio se escriben al vender */
   tipo?: "producto" | "servicio";
+  /** Foto para identificarlo (0046); no se imprime */
+  imagen_url?: string | null;
   nombre_libre?: boolean;
   precio_libre?: boolean;
 }

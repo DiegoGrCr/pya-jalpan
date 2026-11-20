@@ -7,7 +7,7 @@ import { generarPlantilla } from "@/lib/productos";
 import { fmtCantidad, mxnPrecio as mxn } from "@/lib/unidades";
 
 interface Fila {
-  id: string; sku: string; nombre: string; formato: string | null; presentacion: "piso" | "unidad"; unidad_base: string;
+  id: string; sku: string; nombre: string; imagen_url: string | null; formato: string | null; presentacion: "piso" | "unidad"; unidad_base: string;
   piezas_por_caja: number | null; m2_por_caja: string | null; precio_m2: string | null; activo: boolean;
   marcas: { nombre: string } | null; categorias: { nombre: string } | null;
   unidades_venta: { nombre: string; es_base: boolean; precios: { precio: string; lista_id: string }[] }[];
@@ -55,7 +55,7 @@ export default function Productos() {
     try {
       const sb = supabase();
       let q = sb.from("productos")
-        .select("id, sku, nombre, formato, presentacion, unidad_base, piezas_por_caja, m2_por_caja, precio_m2, activo, marcas(nombre), categorias(nombre), unidades_venta(nombre, es_base, precios(precio, lista_id)), existencias(cantidad)", { count: "exact" })
+        .select("id, sku, nombre, imagen_url, formato, presentacion, unidad_base, piezas_por_caja, m2_por_caja, precio_m2, activo, marcas(nombre), categorias(nombre), unidades_venta(nombre, es_base, precios(precio, lista_id)), existencias(cantidad)", { count: "exact" })
         .order("nombre").range(pagina * POR_PAGINA, pagina * POR_PAGINA + POR_PAGINA - 1);
       if (!inactivos) q = q.eq("activo", true);
       const t = texto.trim().replace(/[%,()]/g, "");
@@ -133,7 +133,7 @@ export default function Productos() {
         <table className="w-full text-sm min-w-[860px]">
           <thead style={{ color: "var(--acento)" }}>
             <tr className="text-left">
-              <th className="p-2 font-normal">SKU</th><th className="font-normal">Descripción</th><th className="font-normal">Marca</th>
+              <th className="p-2 font-normal w-12"></th><th className="font-normal">SKU</th><th className="font-normal">Descripción</th><th className="font-normal">Marca</th>
               <th className="font-normal">Formato</th><th className="font-normal">Caja</th><th className="font-normal">Precio</th>
               <th className="font-normal text-right pr-2">Existencia</th>
             </tr>
@@ -141,7 +141,10 @@ export default function Productos() {
           <tbody>
             {filasVista.map(({ f, existencia, precioTxt, negativa }, i) => (
               <tr key={f.id} className="border-t border-[var(--borde)]" style={{ background: i % 2 ? "transparent" : "#f7f9fb", opacity: f.activo ? 1 : 0.5 }}>
-                <td className="p-2 font-mono whitespace-nowrap">{puedeEditar ? <Link className="underline" href={`/compras/productos/${f.id}`}>{f.sku}</Link> : f.sku}</td>
+                <td className="p-1.5 pl-2">{f.imagen_url
+                  ? <a href={f.imagen_url} target="_blank" rel="noreferrer" title="Ver foto"><img src={f.imagen_url} alt="" loading="lazy" className="w-10 h-10 object-cover rounded border border-[var(--borde)] bg-white" /></a>
+                  : <div className="w-10 h-10 rounded bg-[#f1f4f3]" />}</td>
+                <td className="py-2 pr-2 font-mono whitespace-nowrap">{puedeEditar ? <Link className="underline" href={`/compras/productos/${f.id}`}>{f.sku}</Link> : f.sku}</td>
                 <td className="py-2">{f.nombre}{!f.activo && " (inactivo)"}<div className="text-xs text-[var(--tenue)]">{f.categorias?.nombre}</div></td>
                 <td className="py-2">{f.marcas?.nombre ?? "—"}</td>
                 <td className="py-2">{f.formato ?? "—"}</td>
@@ -151,7 +154,7 @@ export default function Productos() {
               </tr>
             ))}
             {!cargando && filas.length === 0 && (
-              <tr><td colSpan={7} className="p-6 text-center text-[var(--tenue)]">
+              <tr><td colSpan={8} className="p-6 text-center text-[var(--tenue)]">
                 No hay productos{texto || marca || categoria ? " con esos filtros" : ""}. {puedeEditar && <>Da de alta uno con <b>+ Nuevo producto</b> o súbelos con <b>Importar desde Excel</b>.</>}
               </td></tr>
             )}
