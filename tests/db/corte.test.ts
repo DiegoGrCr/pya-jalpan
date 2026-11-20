@@ -70,3 +70,29 @@ describe("cortes cerrados", () => {
     expect(Number(fila.pagos.efectivo)).toBe(720);
   });
 });
+
+describe("corte con fechas elegidas", () => {
+  it("lo posterior a la fecha final queda para el siguiente corte y no se traslapan", async () => {
+    const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+    const ayer = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+    // cerrar lo pendiente para empezar limpio
+    const r0 = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    await rpc(s.cajeroA, "cerrar_corte", { idempotency_key: key(), sucursal_id: s.sucA, efectivo_contado: Number(r0.efectivo_esperado) });
+    await venta([{ forma: "efectivo", importe: 720 }]);
+    await rpc(s.cajeroA, "registrar_retiro", { idempotency_key: key(), sucursal_id: s.sucA, importe: 100, concepto: "Depósito" });
+    // un corte que termina ayer no incluye lo de hoy
+    await expect(rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA, hasta: ayer })).rejects.toThrow(/posterior/);
+    // pedir desde hace una semana no se traslapa con el corte anterior
+    const r = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA, desde: "2020-01-01", hasta: hoy });
+    expect(new Date(r.desde).getTime()).toBe(new Date(r.ultimo_corte).getTime());
+    expect(Number(r.total_general)).toBe(720);
+    expect(Number(r.retirado)).toBe(100);
+    // un gasto fechado dentro de un corte cerrado no se acepta
+    await expect(rpc(s.cajeroA, "registrar_retiro", { idempotency_key: key(), sucursal_id: s.sucA, tipo: "gasto", categoria: "Otros",
+      importe: 10, concepto: "X", fecha: "2020-01-02T12:00:00-06:00" })).rejects.toThrow(/corte cerrado/);
+    const c = await rpc(s.cajeroA, "cerrar_corte", { idempotency_key: key(), sucursal_id: s.sucA, desde: "2020-01-01", hasta: hoy, efectivo_contado: Number(r.efectivo_esperado) });
+    const n = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    expect(Number(n.retirado)).toBe(0);
+    expect(c.serie).toBeTruthy();
+  });
+});

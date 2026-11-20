@@ -1,7 +1,7 @@
 "use client";
 /**
  * Finanzas › Corte de caja (por sucursal, normalmente semanal).
- * Corte en curso desde el último corte: ventas (folio, cliente, cómo se pagó, estatus), entradas por forma de pago,
+ * Corte en curso (por omisión desde el último corte hasta hoy; las fechas se pueden elegir): ventas (folio, cliente, cómo se pagó, estatus), entradas por forma de pago,
  * devoluciones, retiros y gastos; cuadre de efectivo como lo pide la contadora. Se cierra con el efectivo contado.
  * Se imprime o se exporta a Excel (en curso y cortes anteriores).
  */
@@ -97,6 +97,23 @@ function TablaFormas({ titulo, lineas, signo }: { titulo: string; lineas: Linea[
   );
 }
 
+const diaMx = (d: Date | string) => new Date(d).toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+/** Suma días a una fecha "AAAA-MM-DD" */
+const masDias = (f: string, n: number) => { const d = new Date(`${f}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+const diaSemana = (f: string) => new Date(`${f}T12:00:00Z`).getUTCDay(); // 0 domingo … 6 sábado
+/** Periodos comunes, relativos a hoy */
+function periodos(): { texto: string; desde: string; hasta: string }[] {
+  const hoy = diaMx(new Date());
+  const lunes = masDias(hoy, -((diaSemana(hoy) + 6) % 7));
+  const min = (a: string, b: string) => (a < b ? a : b);
+  const sab = masDias(hoy, -((diaSemana(hoy) + 1) % 7));   // último sábado (hoy si es sábado)
+  return [
+    { texto: "Lunes a viernes", desde: lunes, hasta: min(masDias(lunes, 4), hoy) },
+    { texto: "Lunes a sábado", desde: lunes, hasta: min(masDias(lunes, 5), hoy) },
+    { texto: "Sábado a sábado", desde: masDias(sab, -7), hasta: sab },
+  ];
+}
+
 export default function CorteCaja() {
   const [sucursales, setSucursales] = useState<{ id: string; codigo: string; nombre: string }[]>([]);
   const [sucursal, setSucursal] = useState("");
@@ -113,6 +130,8 @@ export default function CorteCaja() {
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [trabajando, setTrabajando] = useState(false);
   const [clave, setClave] = useState(() => crypto.randomUUID());
+  // null = periodo por omisión (desde el último corte hasta ahora)
+  const [fechas, setFechas] = useState<{ desde: string; hasta: string } | null>(null);
   const [empresa, setEmpresa] = useState("");
   useEffect(() => { cargarEmpresa().then((e) => setEmpresa(e.nombre_emisor || e.razon_social || "")).catch(() => {}); }, []);
 
@@ -134,7 +153,7 @@ export default function CorteCaja() {
     try {
       const sb = supabase();
       const [res, hist] = await Promise.all([
-        sb.rpc("corte_resumen", { p: { sucursal_id: sucursal } }),
+        sb.rpc("corte_resumen", { p: { sucursal_id: sucursal, ...(fechas ?? {}) } }),
         sb.from("cortes_caja").select("id, serie, folio, desde, hasta, total_general, efectivo_esperado, efectivo_contado, diferencia, notas, usuario_id, resumen")
           .eq("sucursal_id", sucursal).order("hasta", { ascending: false }).limit(60),
       ]);
@@ -148,7 +167,7 @@ export default function CorteCaja() {
       const ids = h.map((x) => x.usuario_id ?? "").filter(Boolean);
       if (ids.length) setNombres(await nombresUsuarios(ids));
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); }
-  }, [sucursal]);
+  }, [sucursal, fechas]);
   useEffect(() => { cargar(); }, [cargar]);
   useEffect(() => { if (msg?.tipo !== "ok") return; const t = setTimeout(() => setMsg(null), 4000); return () => clearTimeout(t); }, [msg]);
 
@@ -183,12 +202,12 @@ export default function CorteCaja() {
   };
   const cerrar = async () => {
     if (!r || contado === "") return;
-    if (!window.confirm(`¿Cerrar el corte?\n\nTotal general: ${$(r.total_general)}\nEfectivo esperado: ${$(r.efectivo_esperado)}\nEfectivo contado: ${$(contado)}\nDiferencia: ${$(diferencia ?? 0)}`)) return;
+    if (!window.confirm(`¿Cerrar el corte?\n\nDel ${fechaMx(r.desde)} al ${fechaMx(r.hasta)}\nTotal general: ${$(r.total_general)}\nEfectivo esperado: ${$(r.efectivo_esperado)}\nEfectivo contado: ${$(contado)}\nDiferencia: ${$(diferencia ?? 0)}`)) return;
     setTrabajando(true);
     try {
-      const { data, error } = await supabase().rpc("cerrar_corte", { p: { idempotency_key: clave, sucursal_id: sucursal, efectivo_contado: contado, notas: notas || null } });
+      const { data, error } = await supabase().rpc("cerrar_corte", { p: { idempotency_key: clave, sucursal_id: sucursal, efectivo_contado: contado, notas: notas || null, ...(fechas ?? {}) } });
       if (error) throw error;
-      setContado(""); setNotas(""); setClave(crypto.randomUUID());
+      setContado(""); setNotas(""); setClave(crypto.randomUUID()); setFechas(null);
       setMsg({ tipo: "ok", texto: `Corte ${data.serie} ${data.folio} cerrado.` });
       await cargar();
       setAbierto(data.corte_id);
@@ -210,7 +229,7 @@ export default function CorteCaja() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold">Corte de caja</h1>
         <label className="text-sm">Sucursal
-          <select className="campo !w-auto" value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
+          <select className="campo !w-auto" value={sucursal} onChange={(e) => { setSucursal(e.target.value); setFechas(null); }}>
             {sucursales.map((s) => <option key={s.id} value={s.id}>{s.codigo} - {s.nombre}</option>)}
           </select>
         </label>
@@ -220,8 +239,32 @@ export default function CorteCaja() {
         <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] p-4 flex flex-col gap-4">
           <div className="flex justify-between flex-wrap gap-2 items-baseline">
             <div className="barra-seccion flex-1">Corte en curso</div>
-            <span className="text-sm text-[var(--tenue)]">Desde {fechaMx(r.desde)} hasta ahora</span>
+            <span className="text-sm text-[var(--tenue)]">Del {fechaMx(r.desde)} al {fechaMx(r.hasta)}</span>
           </div>
+          {(() => {
+            const hoy = diaMx(new Date());
+            const d = fechas?.desde ?? diaMx(r.desde), h = fechas?.hasta ?? hoy;
+            const minimo = r.ultimo_corte ? diaMx(r.ultimo_corte) : undefined;
+            const hueco = r.ultimo_corte && new Date(r.desde).getTime() - new Date(r.ultimo_corte).getTime() > 1000;
+            return (
+              <div className="flex flex-col gap-2 text-sm">
+                <div className="flex flex-wrap items-end gap-3">
+                  <label>Desde<input type="date" className="campo !w-auto" value={d} min={minimo} max={h} onChange={(e) => e.target.value && setFechas({ desde: e.target.value, hasta: h })} /></label>
+                  <label>Hasta<input type="date" className="campo !w-auto" value={h} min={d} max={hoy} onChange={(e) => e.target.value && setFechas({ desde: d, hasta: e.target.value })} /></label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {periodos().map((x) => (
+                      <button key={x.texto} className={`px-2.5 py-1.5 rounded border text-xs ${fechas?.desde === x.desde && fechas?.hasta === x.hasta ? "border-[var(--acento)] bg-[var(--resalte)]" : "border-[var(--borde)]"}`}
+                        onClick={() => setFechas({ desde: x.desde, hasta: x.hasta })}>{x.texto}</button>
+                    ))}
+                    <button className={`px-2.5 py-1.5 rounded border text-xs ${!fechas ? "border-[var(--acento)] bg-[var(--resalte)]" : "border-[var(--borde)]"}`} onClick={() => setFechas(null)}>Desde el último corte</button>
+                  </div>
+                </div>
+                {r.ultimo_corte && <div className="text-xs text-[var(--tenue)]">El último corte terminó el {fechaMx(r.ultimo_corte)}; este corte no puede empezar antes.</div>}
+                {hueco && <div className="rounded px-3 py-1.5 bg-amber-100 text-amber-900 text-xs">Lo que pasó del {fechaMx(r.ultimo_corte!)} al {fechaMx(r.desde)} no quedará en ningún corte.</div>}
+                {h < hoy && <div className="text-xs text-[var(--tenue)]">Lo posterior al {h.split("-").reverse().join("/")} quedará para el siguiente corte.</div>}
+              </div>
+            );
+          })()}
           <div className="flex gap-2 justify-end -mt-2">
             <button className="px-3 py-1.5 rounded border border-[var(--borde)] text-sm" onClick={() => imprimirCorte(r, datosEnCurso())}>Imprimir</button>
             <button className="px-3 py-1.5 rounded border border-[var(--borde)] text-sm" onClick={() => excelCorte(r, datosEnCurso(), archivo("en-curso", r.hasta))}>Exportar a Excel</button>
@@ -363,7 +406,7 @@ export default function CorteCaja() {
                     {FORMAS_GASTO.map((f) => <option key={f} value={f}>{FORMAS_PAGO[f]}</option>)}
                   </select>
                 </label>
-                <label>Fecha<input type="date" className="campo" value={retiro.fecha} max={new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" })} onChange={(e) => setRetiro({ ...retiro, fecha: e.target.value })} /></label>
+                <label>Fecha<input type="date" className="campo" value={retiro.fecha} min={r?.ultimo_corte ? diaMx(r.ultimo_corte) : undefined} max={diaMx(new Date())} onChange={(e) => setRetiro({ ...retiro, fecha: e.target.value })} /></label>
                 <label className="sm:col-span-2">Proveedor / a quién se pagó (opcional)<input className="campo" value={retiro.proveedor} onChange={(e) => setRetiro({ ...retiro, proveedor: e.target.value })} /></label>
               </>)}
             </div>

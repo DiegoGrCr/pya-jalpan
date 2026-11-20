@@ -14,7 +14,7 @@ export interface VentaCorte {
   cliente: string; total: number; saldo: number; anterior: boolean; pagos: Record<string, number>;
 }
 export interface Resumen {
-  desde: string; hasta: string; entradas: Linea[]; salidas: Linea[]; retiros: Retiro[]; retirado: number;
+  desde: string; hasta: string; ultimo_corte?: string | null; entradas: Linea[]; salidas: Linea[]; retiros: Retiro[]; retirado: number;
   gastos?: Gasto[]; gastado?: number; gastado_efectivo?: number; neto?: number; ventas?: VentaCorte[];
   total_general: number; efectivo_esperado: number; por_forma: Record<string, number>;
 }
