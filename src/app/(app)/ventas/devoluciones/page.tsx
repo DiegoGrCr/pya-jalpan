@@ -8,6 +8,7 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtCantidad, fmtImporte } from "@/lib/unidades";
 import { FORMAS_PAGO, fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
+import { EsqueletoFilas } from "@/components/Esqueleto";
 
 interface Fila {
   id: string; fecha: string; destino: "saldo_favor" | "dinero"; forma: string | null; importe: string; motivo: string; usuario_id: string | null;
@@ -83,6 +84,7 @@ export default function Devoluciones() {
             </tr>
           </thead>
           <tbody>
+            {cargando && !filas.length && <EsqueletoFilas columnas={8} />}
             {filas.map((x, i) => (
               <tr key={x.id} className="border-b border-[var(--borde)] align-top" style={{ background: i % 2 ? undefined : "#f7f9fb" }}>
                 <td className="p-2 whitespace-nowrap">{fechaMx(x.fecha)}</td>

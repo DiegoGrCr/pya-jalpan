@@ -10,6 +10,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { TIPO_VENTA, fmtImporte } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
 import EstatusVenta from "@/components/EstatusVenta";
+import { EsqueletoFilas } from "@/components/Esqueleto";
 
 interface Fila {
   id: string; serie: string; folio: number; fecha: string; tipo: "contado" | "credito"; estado: "confirmada" | "cancelada";
@@ -145,6 +146,7 @@ export default function ListaVentas() {
             </tr>
           </thead>
           <tbody>
+            {cargando && !filas.length && <EsqueletoFilas columnas={14} />}
             {filas.map((f, i) => {
               const cancelada = f.estado === "cancelada";
               const sinEntregar = !cancelada && f.venta_partidas.some((p) => Number(p.cantidad_entregada) < Number(p.cantidad));

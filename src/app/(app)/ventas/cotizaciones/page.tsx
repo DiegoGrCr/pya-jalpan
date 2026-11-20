@@ -8,6 +8,7 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { estatusCotizacion } from "@/lib/cotizaciones";
+import { EsqueletoFilas } from "@/components/Esqueleto";
 
 interface Fila {
   id: string; serie: string; folio: number; fecha: string; vigencia: string; estado: "borrador" | "enviada" | "convertida" | "cancelada";
@@ -115,6 +116,7 @@ export default function Cotizaciones() {
             </tr>
           </thead>
           <tbody>
+            {cargando && !filas.length && <EsqueletoFilas columnas={9} />}
             {filas.map((f, i) => {
               const e = estatusCotizacion(f);
               const abierta = f.estado === "borrador" || f.estado === "enviada";

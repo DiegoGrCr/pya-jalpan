@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtCantidad, fmtImporte, nombreConCaja } from "@/lib/unidades";
+import { EsqueletoFilas } from "@/components/Esqueleto";
 
 interface Fila {
   producto_id: string; sku: string; nombre: string; formato: string | null; presentacion: string; unidad_base: string;
@@ -180,6 +181,7 @@ export default function Existencias() {
             </tr>
           </thead>
           <tbody>
+            {cargando && !filas.length && <EsqueletoFilas columnas={5 + columnas.length} />}
             {filas.map((x, i) => (
               <tr key={x.producto_id} className="border-b border-[var(--borde)] align-top" style={{ background: i % 2 ? undefined : "#f7f9fb", opacity: x.activo ? 1 : 0.6 }}>
                 <td className="p-2 font-mono whitespace-nowrap">{x.sku}</td>

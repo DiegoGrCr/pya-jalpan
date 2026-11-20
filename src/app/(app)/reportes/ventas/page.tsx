@@ -10,6 +10,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { TIPO_VENTA, fmtCantidad, fmtImporte, nombreConCaja, tipoVentaDe } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
 import EstatusVenta from "@/components/EstatusVenta";
+import { EsqueletoTabla } from "@/components/Esqueleto";
 
 interface Venta {
   id: string; serie: string; folio: number; fecha: string; cliente: string | null; cliente_id: string | null; sucursal: string | null; almacen: string | null;
@@ -291,7 +292,7 @@ export default function ReporteVentas() {
       )}
 
       <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] overflow-x-auto">
-        {cargando ? <div className="p-6 text-center text-[var(--tenue)]">Cargando…</div>
+        {cargando ? <div className="p-2"><EsqueletoTabla columnas={9} filas={10} /></div>
           : !ventas.length ? <div className="m-4 p-3 rounded text-center bg-amber-50 text-amber-900">No se encontraron registros, ajusta los filtros y vuelve a intentarlo.</div>
           : agrupar ? (
             <table className="w-full text-sm min-w-[860px]">

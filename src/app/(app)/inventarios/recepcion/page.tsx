@@ -8,6 +8,7 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
+import { EsqueletoFilas } from "@/components/Esqueleto";
 
 interface Fila {
   id: string; serie: string; folio: number; fecha: string; documento_proveedor: string | null; estado: "aplicada" | "cancelada";
@@ -72,6 +73,7 @@ export default function Recepcion() {
             <th className="font-normal text-right pr-3">I.V.A.</th><th className="font-normal text-right pr-3">Total</th>
             <th className="font-normal">Estado</th><th className="font-normal">Recibió</th></tr></thead>
           <tbody>
+            {cargando && !filas.length && <EsqueletoFilas columnas={10} />}
             {filas.map((x) => (
               <tr key={x.id} className="border-b border-[var(--borde)]">
                 <td className="p-2 whitespace-nowrap"><Link className="underline" href={`/inventarios/recepcion/${x.id}`}>{x.serie} {x.folio}</Link></td>

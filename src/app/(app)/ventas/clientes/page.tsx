@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
+import { EsqueletoFilas } from "@/components/Esqueleto";
 
 interface Fila {
   id: string; nombre: string; razon_social: string | null; rfc: string | null; telefono: string | null; correo_facturas: string | null;
@@ -87,6 +88,7 @@ export default function Clientes() {
             </tr>
           </thead>
           <tbody>
+            {cargando && !filas.length && <EsqueletoFilas columnas={6} />}
             {filas.map((f, i) => (
               <tr key={f.id} className="border-b border-[var(--borde)]" style={{ background: i % 2 ? undefined : "#f7f9fb" }}>
                 <td className="p-2"><Link className="underline" href={`/ventas/clientes/${f.id}`}>{f.razon_social || f.nombre}</Link>

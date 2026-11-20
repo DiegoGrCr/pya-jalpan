@@ -10,6 +10,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { FORMAS_PAGO, fechaMx } from "@/lib/documentoVenta";
 import EstatusVenta from "@/components/EstatusVenta";
+import { EsqueletoFicha } from "@/components/Esqueleto";
 
 interface Cliente { id: string; nombre: string; razon_social: string | null; rfc: string | null; telefono: string | null; correo_facturas: string | null; direccion: string | null; saldo_a_favor?: string; es_publico_general: boolean }
 interface Mov { id: string; fecha: string; importe: string; saldo: string; concepto: string; forma: string | null; referencia: string | null; venta_id: string | null }
@@ -81,7 +82,7 @@ export default function FichaCliente() {
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
   };
 
-  if (!c) return <div className="p-6 text-[var(--tenue)]">{msg?.texto ?? "Cargando cliente…"}</div>;
+  if (!c) return msg ? <div className="p-6 text-[var(--tenue)]">{msg.texto}</div> : <EsqueletoFicha />;
   const porCobrar = ventas.filter((v) => v.estado === "confirmada").reduce((s, v) => s + Number(v.saldo), 0);
   const conSaldo = ventas.filter((v) => v.estado === "confirmada" && Number(v.saldo) > 0);
   const set = (k: keyof Cliente, val: string) => setDatos((d) => (d ? { ...d, [k]: val } : d));

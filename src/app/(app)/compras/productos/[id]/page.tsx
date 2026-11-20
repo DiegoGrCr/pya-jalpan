@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import ProductoForm from "@/components/ProductoForm";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { PRODUCTO_VACIO, ProductoForm as Datos, Presentacion } from "@/lib/productos";
+import { EsqueletoFormulario } from "@/components/Esqueleto";
 
 interface Fila {
   id: string; sku: string; nombre: string; formato: string | null; presentacion: Presentacion; unidad_base: string;
@@ -56,6 +57,6 @@ export default function EditarProducto({ params }: { params: Promise<{ id: strin
   }, [id]);
 
   if (error) return <div className="p-5 text-[var(--peligro)]">{error}</div>;
-  if (!datos) return <div className="p-5">Cargando…</div>;
+  if (!datos) return <EsqueletoFormulario />;
   return <ProductoForm inicial={datos} esNuevo={false} />;
 }

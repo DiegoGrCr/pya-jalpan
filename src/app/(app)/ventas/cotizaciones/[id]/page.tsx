@@ -11,6 +11,7 @@ import { fmtCantidad, fmtImporte, fmtPrecio, nombreConCaja } from "@/lib/unidade
 import { CotizacionDoc, archivoDe, cargarCotizacion, fechaMx, folioDe, generarPdf, resumenTexto, tituloDe } from "@/lib/documentoVenta";
 import { copiarImagen, pdfAPng } from "@/lib/notaImagen";
 import { estatusCotizacion } from "@/lib/cotizaciones";
+import { EsqueletoFicha } from "@/components/Esqueleto";
 
 const MOTIVOS = ["El cliente ya no lo quiere", "Se capturó dos veces", "Se hizo otra cotización", "Otro"];
 
@@ -86,7 +87,7 @@ export default function DetalleCotizacion() {
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
   };
 
-  if (cargando) return <div className="p-6 text-[var(--tenue)]">Cargando cotización…</div>;
+  if (cargando) return <EsqueletoFicha />;
   if (!v) return (
     <div className="p-6">
       {msg?.tipo === "error" ? <div role="alert" className="mb-3 rounded px-4 py-2 bg-amber-100 text-amber-900">{msg.texto}</div>

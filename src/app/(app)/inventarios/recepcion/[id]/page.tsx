@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtCantidad, fmtImporte, nombreConCaja } from "@/lib/unidades";
 import { fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
+import { EsqueletoFicha } from "@/components/Esqueleto";
 
 interface Entrada {
   id: string; serie: string; folio: number; fecha: string; documento_proveedor: string | null; comentarios: string | null;
@@ -77,7 +78,7 @@ export default function DetalleRecepcion({ params }: { params: Promise<{ id: str
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   };
 
-  if (!e) return <div className="p-5">{msg ? <div role="alert" className="rounded px-4 py-2 bg-amber-100 text-amber-900">{msg.texto}</div> : "Cargando…"}</div>;
+  if (!e) return msg ? <div className="p-5"><div role="alert" className="rounded px-4 py-2 bg-amber-100 text-amber-900">{msg.texto}</div></div> : <EsqueletoFicha />;
   return (
     <div className="p-3 sm:p-5 flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">

@@ -11,6 +11,7 @@ import { FORMAS_PAGO, cargarEmpresa, fechaMx, nombresUsuarios } from "@/lib/docu
 import { $, AVISO_SIN_VENTAS, FORMAS, cuadreEfectivo, estatusCorte, excelCorte, imprimirCorte, pagoDe, totalesVentas,
   type DatosCorte, type Linea, type Resumen, type Retiro, type VentaCorte } from "@/lib/corteCaja";
 import { CATEGORIAS_GASTO, FORMAS_GASTO } from "@/lib/gastos";
+import { EsqueletoTabla } from "@/components/Esqueleto";
 
 interface Corte {
   id: string; serie: string; folio: number; desde: string; hasta: string; total_general: string; efectivo_esperado: string;
@@ -235,6 +236,7 @@ export default function CorteCaja() {
         </label>
       </div>
 
+      {!r && !msg && <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] p-4"><EsqueletoTabla columnas={7} filas={8} /></section>}
       {r && (
         <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] p-4 flex flex-col gap-4">
           <div className="flex justify-between flex-wrap gap-2 items-baseline">

@@ -9,6 +9,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { FORMAS_PAGO, fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
 import { CATEGORIAS_GASTO, FORMAS_GASTO } from "@/lib/gastos";
+import { EsqueletoFilas } from "@/components/Esqueleto";
 
 interface Fila {
   id: string; fecha: string; importe: string; concepto: string; categoria: string | null; forma: string; proveedor: string | null;
@@ -115,6 +116,7 @@ export default function Gastos() {
               </tr>
             </thead>
             <tbody>
+            {cargando && !filas.length && <EsqueletoFilas columnas={7} />}
               {filas.map((x, i) => (
                 <tr key={x.id} className="border-b border-[var(--borde)] align-top" style={{ background: i % 2 ? undefined : "#f7f9fb" }}>
                   <td className="p-2 whitespace-nowrap">{fechaMx(x.fecha)}</td>

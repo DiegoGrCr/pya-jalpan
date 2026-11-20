@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { generarPlantilla } from "@/lib/productos";
 import { fmtCantidad, mxnPrecio as mxn } from "@/lib/unidades";
+import { EsqueletoFilas } from "@/components/Esqueleto";
 
 interface Fila {
   id: string; sku: string; nombre: string; imagen_url: string | null; formato: string | null; presentacion: "piso" | "unidad"; unidad_base: string;
@@ -139,6 +140,7 @@ export default function Productos() {
             </tr>
           </thead>
           <tbody>
+            {cargando && !filas.length && <EsqueletoFilas columnas={8} />}
             {filasVista.map(({ f, existencia, precioTxt, negativa }, i) => (
               <tr key={f.id} className="border-t border-[var(--borde)]" style={{ background: i % 2 ? "transparent" : "#f7f9fb", opacity: f.activo ? 1 : 0.5 }}>
                 <td className="p-1.5 pl-2">{f.imagen_url

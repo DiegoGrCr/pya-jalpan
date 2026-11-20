@@ -10,6 +10,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtCantidad, fmtImporte, nombreConCaja } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
 import GraficaBarras from "@/components/GraficaBarras";
+import { EsqueletoTablero } from "@/components/Esqueleto";
 
 interface ProdTop { sku: string; nombre: string; formato: string | null; m2_por_caja: number | null; unidad_base?: string; total: number; cantidad_base: number; m2: number | null; medida?: number }
 interface Tablero {
@@ -139,7 +140,7 @@ export default function Inicio() {
         </div>
 
         {msg && <div role="alert" className="m-4 rounded px-4 py-2 bg-amber-100 text-amber-900">{msg}</div>}
-        {!t && cargando && <div className="p-6 text-[var(--tenue)]">Cargando…</div>}
+        {!t && cargando && <EsqueletoTablero />}
 
         {t && p && c && pestana === "resumen" && (
           <div className="grid gap-6 p-4 xl:grid-cols-[1fr_360px]">

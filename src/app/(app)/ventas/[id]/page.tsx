@@ -13,6 +13,7 @@ import { fmtCantidad, fmtImporte, fmtPrecio, mxn, nombreConCaja, tipoVentaDe } f
 import { copiarImagen, pdfAPng } from "@/lib/notaImagen";
 import EstatusVenta from "@/components/EstatusVenta";
 import { FORMAS_PAGO, VentaDoc, archivoDe, cargarVenta, fechaMx, folioDe, generarPdf, pendienteEntrega, resumenTexto, tituloDe } from "@/lib/documentoVenta";
+import { EsqueletoFicha } from "@/components/Esqueleto";
 
 type Formato = "carta" | "ticket80" | "ticket58";
 const CLAVE_TICKET = "formato-ticket";
@@ -245,7 +246,7 @@ export default function DetalleVenta() {
     return () => window.removeEventListener("keydown", h);
   });
 
-  if (cargando) return <div className="p-6 text-[var(--tenue)]">Cargando venta…</div>;
+  if (cargando) return <EsqueletoFicha />;
   if (!v) return (
     <div className="p-6">
       {msg?.tipo === "error"
