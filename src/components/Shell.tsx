@@ -21,7 +21,6 @@ export const MENU: Grupo[] = [
   ] },
   { texto: "Inventarios", icono: "▤", items: [
     { texto: "Almacenes y existencias", href: "/inventarios/existencias" },
-    { texto: "Hojas de cálculo", href: "/inventarios/hojas" },
     { texto: "Recepción de mercancía", href: "/inventarios/recepcion" },
     { texto: "Traspasos", href: "/inventarios/traspasos" },
     { texto: "Ajustes y conteo", href: "/inventarios/ajustes" },

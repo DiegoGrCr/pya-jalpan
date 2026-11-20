@@ -134,7 +134,6 @@ export default function Existencias() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold">Almacenes y existencias</h1>
         <div className="flex gap-3 items-center text-sm">
-          <Link href="/inventarios/hojas" className="underline">Hojas de cálculo</Link>
           <Link href="/configuracion/sucursales" className="underline">Administrar almacenes</Link>
           <button className="btn-primario" onClick={exportar}>Exportar a Excel</button>
         </div>
