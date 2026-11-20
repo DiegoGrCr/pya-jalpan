@@ -8,7 +8,7 @@ import { PRODUCTO_VACIO, ProductoForm as Datos, Presentacion } from "@/lib/produ
 interface Fila {
   id: string; sku: string; nombre: string; formato: string | null; presentacion: Presentacion; unidad_base: string;
   piezas_por_caja: number | null; m2_por_caja: string | null; precio_m2: string | null; codigo_barras: string | null;
-  comentarios: string | null; activo: boolean; marcas: { nombre: string } | null; categorias: { nombre: string } | null;
+  comentarios: string | null; activo: boolean; tipo: "producto" | "servicio"; marcas: { nombre: string } | null; categorias: { nombre: string } | null;
   unidades_venta: { nombre: string; es_base: boolean; precios: { precio: string; lista_id: string }[] }[];
 }
 
@@ -22,13 +22,16 @@ export default function EditarProducto({ params }: { params: Promise<{ id: strin
       try {
         const sb = supabase();
         const [{ data, error }, lp] = await Promise.all([
-          sb.from("productos").select("id, sku, nombre, formato, presentacion, unidad_base, piezas_por_caja, m2_por_caja, precio_m2, codigo_barras, comentarios, activo, marcas(nombre), categorias(nombre), unidades_venta(nombre, es_base, precios(precio, lista_id))").eq("id", id).maybeSingle(),
+          sb.from("productos").select("id, sku, nombre, formato, presentacion, unidad_base, piezas_por_caja, m2_por_caja, precio_m2, codigo_barras, comentarios, activo, tipo, marcas(nombre), categorias(nombre), unidades_venta(nombre, es_base, precios(precio, lista_id))").eq("id", id).maybeSingle(),
           sb.from("listas_precios").select("id").eq("predeterminada", true).maybeSingle(),
         ]);
         if (error) throw error;
         if (!data) throw new Error("Producto no encontrado.");
         const p = data as unknown as Fila;
         const precio = (u?: Fila["unidades_venta"][number]) => u?.precios.find((x) => x.lista_id === lp.data?.id)?.precio ?? "";
+        // Nombre/precio libre (0044): consulta aparte por si falta la migración
+        const libres = await sb.from("productos").select("nombre_libre, precio_libre").eq("id", id).maybeSingle();
+        const lib = (libres.error ? null : libres.data) as { nombre_libre: boolean; precio_libre: boolean } | null;
         const caja = p.unidades_venta.find((u) => u.nombre === "CAJA" && !u.es_base);
         const base = p.unidades_venta.find((u) => u.es_base);
         setDatos({
@@ -36,6 +39,7 @@ export default function EditarProducto({ params }: { params: Promise<{ id: strin
           unidad: p.unidad_base, marca: p.marcas?.nombre ?? "", categoria: p.categorias?.nombre ?? "",
           piezas_por_caja: p.piezas_por_caja?.toString() ?? "", m2_por_caja: p.m2_por_caja ? String(Number(p.m2_por_caja)) : "",
           precio_m2: p.precio_m2 ?? "", codigo_barras: p.codigo_barras ?? "", comentarios: p.comentarios ?? "", activo: p.activo,
+          tipo: p.tipo, nombre_libre: !!lib?.nombre_libre, precio_libre: !!lib?.precio_libre,
           precio: p.presentacion === "unidad" ? precio(base) : "",
           // Si el precio guardado no coincide con el calculado desde m² (sin redondeo), se escribió a mano
           ...(() => {

@@ -26,6 +26,8 @@ interface Linea {
   partidaId?: string; entregada?: string;
   /** Almacén (bodega) de donde sale este renglón; vacío = el de la venta */
   almacenId?: string;
+  /** Nombre escrito en el renglón (conceptos con nombre libre, p. ej. CVG) */
+  descripcion?: string;
 }
 interface Pago { forma: Forma; importe: string; referencia: string }
 interface Cliente { id: string; nombre: string; rfc: string | null; es_publico_general: boolean; lista_precios_id: string | null; limite_credito: string; dias_credito: number }
@@ -51,6 +53,20 @@ const dec = (v: string | undefined) => { try { const d = new Decimal(v || 0); re
 
 interface FilaUnidad { id: string; nombre: string; factor: string; es_base: boolean; orden: number; precios?: { precio: string; lista_id: string }[] }
 interface FilaProducto extends Omit<ProductoVenta, "unidades"> { unidades_venta: FilaUnidad[] }
+
+/**
+ * Conceptos (0044): nombre escrito por renglón y opciones nombre/precio libre del producto.
+ * Consulta aparte para que la captura funcione aunque falte la migración.
+ */
+async function conceptosDe(tabla: "venta_partidas" | "cotizacion_partidas", col: "venta_id" | "cotizacion_id", id: string, lineas: Linea[], renglones: number[]) {
+  const { data, error } = await supabase().from(tabla).select("renglon, descripcion, productos(nombre_libre, precio_libre)").eq(col, id);
+  if (error || !data) return lineas;
+  const filas = data as unknown as { renglon: number; descripcion: string | null; productos: { nombre_libre: boolean; precio_libre: boolean } | null }[];
+  return lineas.map((l, i) => {
+    const f = filas.find((x) => x.renglon === renglones[i]);
+    return f ? { ...l, descripcion: f.descripcion ?? "", producto: { ...l.producto, nombre_libre: !!f.productos?.nombre_libre, precio_libre: !!f.productos?.precio_libre } } : l;
+  });
+}
 
 const CLAVE_LOCAL = "captura-venta-v1";
 /** Fecha (AAAA-MM-DD, hora de México) dentro de n días */
@@ -148,7 +164,8 @@ export default function CapturarVenta() {
       cotizacion_partidas: { renglon: number; unidad_venta_id: string; cantidad: string; precio_unitario: string; descuento: string; comentario: string | null; productos: FilaProducto }[] };
     if (modo !== "copiar" && q.estado === "convertida") throw new Error("Esta cotización ya se convirtió en venta.");
     if (modo !== "copiar" && q.estado === "cancelada") throw new Error("Esta cotización está cancelada.");
-    const lineas: Linea[] = [...q.cotizacion_partidas].sort((a, b) => a.renglon - b.renglon).map((cp) => {
+    const ordenadasQ = [...q.cotizacion_partidas].sort((a, b) => a.renglon - b.renglon);
+    let lineas: Linea[] = ordenadasQ.map((cp) => {
       const { unidades_venta, ...prod } = cp.productos;
       const producto: ProductoVenta = { ...prod, unidades: [...unidades_venta].sort((a, b) => a.orden - b.orden)
         .map((u) => ({ ...u, precio: u.precios?.find((x) => x.lista_id === listaId)?.precio ?? null })) };
@@ -156,6 +173,7 @@ export default function CapturarVenta() {
         descuento: "0", entregarAhora: true, comentario: cp.comentario ?? "",
         descTipo: "$", descValor: Number(cp.descuento) > 0 ? String(Number(cp.descuento)) : "", verDesc: Number(cp.descuento) > 0 };
     });
+    lineas = await conceptosDe("cotizacion_partidas", "cotizacion_id", q.id, lineas, ordenadasQ.map((x) => x.renglon));
     const folio = `${q.serie} ${q.folio}`;
     setC({ ...capturaNueva(q.sucursal_id, q.almacen_id, q.clientes ?? publicoGeneral), lineas, comentarios: q.comentarios ?? "", sinIva: q.sin_iva !== false,
       ...(modo === "vender" ? { desdeCotizacion: { id: q.id, folio } }
@@ -186,7 +204,8 @@ export default function CapturarVenta() {
     };
     if (v.estado !== "confirmada") throw new Error("La venta está cancelada; ya no se puede editar.");
     if (v.cerrada) throw new Error("La venta está cerrada; ya no se puede editar.");
-    const lineas: Linea[] = [...v.venta_partidas].sort((a, b) => a.renglon - b.renglon).map((vp) => {
+    const ordenadasV = [...v.venta_partidas].sort((a, b) => a.renglon - b.renglon);
+    let lineas: Linea[] = ordenadasV.map((vp) => {
       const { unidades_venta, ...prod } = vp.productos;
       const producto: ProductoVenta = { ...prod, unidades: [...unidades_venta].sort((a, b) => a.orden - b.orden)
         .map((u) => ({ ...u, precio: u.precios?.find((x) => x.lista_id === listaId)?.precio ?? null })) };
@@ -195,6 +214,7 @@ export default function CapturarVenta() {
         descTipo: "$", descValor: Number(vp.descuento) > 0 ? String(Number(vp.descuento)) : "", verDesc: Number(vp.descuento) > 0,
         partidaId: vp.id, entregada: String(Number(vp.cantidad_entregada)), almacenId: vp.almacen_id && vp.almacen_id !== v.almacen_id ? vp.almacen_id : undefined };
     });
+    lineas = await conceptosDe("venta_partidas", "venta_id", v.id, lineas, ordenadasV.map((x) => x.renglon));
     setC({ clave: crypto.randomUUID(), sucursalId: v.sucursal_id, almacenId: v.almacen_id, cliente: v.clientes,
       tipo: v.tipo === "credito" ? "credito" : v.con_abono ? "abono" : "contado", lineas, pagos: [], comentarios: v.comentarios ?? "",
       sinIva: v.sin_iva !== false, ordenCompra: v.orden_compra ?? "", edicion: { ventaId: v.id, folio: `${v.serie} ${v.folio}`, pagado: String(v.pagado) } });
@@ -249,7 +269,8 @@ export default function CapturarVenta() {
           if (t) q = q.or(`sku.ilike.%${t}%,nombre.ilike.%${t}%,codigo_barras.eq.${t}`);
           return q;
         };
-        let { data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja, formato");
+        let { data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja, formato, nombre_libre, precio_libre");
+        if (error && /nombre_libre|precio_libre/.test(error.message)) ({ data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja, formato")); // falta 0044
         if (error && /presentacion|m2_por_caja|piezas_por_caja|formato/.test(error.message)) ({ data, error } = await consulta("")); // falta la migración 0015
         if (error) throw error;
         setResultados(((data ?? []) as unknown as FilaProducto[]).map(({ unidades_venta, ...p }) => ({
@@ -264,7 +285,8 @@ export default function CapturarVenta() {
   const agregar = (p: ProductoVenta) => {
     // Unidad predeterminada: la primera unidad alterna (p. ej. CAJA); si no hay, la base
     const u = p.unidades.find((x) => !x.es_base) ?? p.unidades[0];
-    setC((v) => ({ ...v, lineas: [...v.lineas, { uid: crypto.randomUUID(), producto: p, unidadId: u.id, cantidad: "1", precio: u.precio ?? "0", descuento: "0", entregarAhora: true, comentario: "" }] }));
+    setC((v) => ({ ...v, lineas: [...v.lineas, { uid: crypto.randomUUID(), producto: p, unidadId: u.id, cantidad: "1",
+      precio: u.precio ?? (p.precio_libre ? "" : "0"), descuento: "0", entregarAhora: true, comentario: "", descripcion: "" }] }));
     cargarExistencias([p.id], c.almacenId);
     setTexto(""); setBuscando(false); setResultados([]);
   };
@@ -369,6 +391,8 @@ export default function CapturarVenta() {
   c.lineas.forEach((l) => { if (l.entregada && dec(l.cantidad).lt(dec(l.entregada))) motivos.push(`${l.producto.nombre}: no puedes dejar menos de lo ya entregado (${fmtCantidad(l.entregada)}).`); });
   if (c.cotizacion && !c.cotizacion.vigencia) motivos.push("Indica la vigencia de la cotización.");
   if (!c.edicion && !c.cotizacion) {
+    for (const l of c.lineas) if (l.producto.nombre_libre && !l.descripcion?.trim()) motivos.push(`${l.producto.sku}: escribe el nombre del concepto.`);
+    for (const l of c.lineas) if (l.producto.precio_libre && !(Number(l.precio) >= 0 && l.precio !== "")) motivos.push(`${l.producto.sku}: escribe el precio.`);
     if (c.tipo === "credito" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("La venta a crédito requiere un cliente registrado.");
     if (c.tipo === "abono" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("Para dejar saldo pendiente elige o da de alta al cliente (+ Nuevo).");
     if (c.tipo === "abono" && pagado.gt(total)) motivos.push("El abono es mayor al total de la venta.");
@@ -393,7 +417,8 @@ export default function CapturarVenta() {
         idempotency_key: c.clave, venta_id: c.edicion.ventaId, comentarios: c.comentarios || null, orden_compra: c.ordenCompra?.trim() || null,
         ...(dif ? { diferencia: dif.opcion, devolucion_forma: dif.forma } : {}),
         partidas: c.lineas.map((l, i) => ({ partida_id: l.partidaId ?? null, producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
-          precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora, comentario: l.comentario?.trim() || null,
+          precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.producto.tipo === "servicio" || l.entregarAhora, comentario: l.comentario?.trim() || null,
+          descripcion: l.producto.nombre_libre ? l.descripcion?.trim() || null : null,
           almacen_id: almDe(l) })),
       } });
       if (error) {
@@ -418,7 +443,8 @@ export default function CapturarVenta() {
         cliente_id: publicoSel ? null : c.cliente!.id, prospecto: publicoSel ? (c.cotizacion.prospecto?.trim() || null) : null,
         vigencia: c.cotizacion.vigencia, comentarios: c.comentarios || null, sin_iva: sinIva,
         partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad, precio_unitario: l.precio,
-          descuento: descuentos.porRenglon[i].toFixed(2), comentario: l.comentario?.trim() || null })),
+          descuento: descuentos.porRenglon[i].toFixed(2), comentario: l.comentario?.trim() || null,
+          descripcion: l.producto.nombre_libre ? l.descripcion?.trim() || null : null })),
       } });
       if (error) {
         if (/sin_iva|comentario|guardar_cotizacion/.test(error.message) && /column|columna|function|función/i.test(error.message))
@@ -444,7 +470,8 @@ export default function CapturarVenta() {
         orden_compra: c.ordenCompra?.trim() || null, cotizacion_id: c.desdeCotizacion?.id ?? null,
         ...(c.cambioAFavor && cambio.gt(0) && c.cliente && !c.cliente.es_publico_general ? { cambio_a_favor: true } : {}),
         partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
-          precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.entregarAhora,
+          precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.producto.tipo === "servicio" || l.entregarAhora,
+          descripcion: l.producto.nombre_libre ? l.descripcion?.trim() || null : null,
           ...(l.almacenId && l.almacenId !== c.almacenId ? { almacen_id: l.almacenId } : {}),
           comentario: l.comentario?.trim() || null })),
         pagos: pagosAplicados.filter((p) => Number(p.importe) > 0).map((p) => ({ forma: p.forma, importe: p.importe, referencia: p.referencia || null })),
@@ -658,7 +685,11 @@ export default function CapturarVenta() {
                       )}
                     </td>
                     <td className="py-2 pr-3">
-                      {nombreConCaja(l.producto.nombre, l.producto.m2_por_caja, l.producto.formato)}
+                      {l.producto.nombre_libre ? (
+                        <input className={`campo ${l.descripcion?.trim() ? "" : "campo-requerido"}`} placeholder={`Nombre del concepto (${l.producto.nombre})`}
+                          value={l.descripcion ?? ""} onChange={(e) => editar(l.uid, { descripcion: e.target.value })} autoFocus={!l.partidaId && !l.descripcion} />
+                      ) : nombreConCaja(l.producto.nombre, l.producto.m2_por_caja, l.producto.formato)}
+                      {l.producto.tipo === "servicio" && <span className="ml-1 px-1.5 rounded text-[10px] bg-sky-100 text-sky-900 align-middle">Sin inventario</span>}
                       <button className="ml-2 align-middle inline-flex items-center justify-center w-6 h-5 border rounded border-[var(--acento)] text-[var(--acento)]" title="Ver detalle y existencia por almacén"
                         aria-label="Ver detalle del producto" onClick={() => verDetalle(l.producto)}>
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
@@ -692,7 +723,8 @@ export default function CapturarVenta() {
                       )}
                       {invalida && <div className="text-xs text-[var(--peligro)]">{u.nombre === "M2" ? "Debe equivaler a piezas completas" : `Solo ${u.nombre} completas`}</div>}
                     </td>
-                    <td className="py-1"><input className="campo" inputMode="decimal" value={l.precio} onChange={(e) => editar(l.uid, { precio: e.target.value })} /></td>
+                    <td className="py-1"><input className={`campo ${l.producto.precio_libre && l.precio === "" ? "campo-requerido" : ""}`} inputMode="decimal"
+                      placeholder={l.producto.precio_libre ? "Precio" : undefined} value={l.precio} onChange={(e) => editar(l.uid, { precio: e.target.value })} /></td>
                     {conDescuento && (
                       <td className="py-1">
                         {(l.verDesc || Number(l.descValor) > 0) && (

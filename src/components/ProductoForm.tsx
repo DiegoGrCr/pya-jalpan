@@ -137,6 +137,16 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
           </label>
           {campo("codigo_barras", "Código de barras")}
           {f.presentacion === "unidad" && (
+            <div className="text-sm lg:col-span-2 flex flex-col gap-1">
+              <label><input type="checkbox" checked={f.tipo === "servicio"} onChange={(e) => setF({ ...f, tipo: e.target.checked ? "servicio" : "producto",
+                ...(e.target.checked ? {} : { nombre_libre: false, precio_libre: false }) })} /> Servicio o concepto sin inventario (flete, mano de obra, concepto genérico)</label>
+              {f.tipo === "servicio" && (<>
+                <label className="ml-5"><input type="checkbox" checked={!!f.nombre_libre} onChange={(e) => setF({ ...f, nombre_libre: e.target.checked })} /> Nombre libre: al vender se escribe el nombre del renglón</label>
+                <label className="ml-5"><input type="checkbox" checked={!!f.precio_libre} onChange={(e) => setF({ ...f, precio_libre: e.target.checked })} /> Precio libre: al vender se escribe el precio (sin permiso de cambiar precios)</label>
+              </>)}
+            </div>
+          )}
+          {f.presentacion === "unidad" && (
             <label className="text-sm">Unidad de venta
               <select className="campo" value={f.unidad} disabled={!esNuevo} onChange={(e) => set("unidad", e.target.value)}>
                 {UNIDADES.map((u) => <option key={u} value={u}>{u}</option>)}
@@ -193,7 +203,7 @@ export default function ProductoForm({ inicial, esNuevo }: { inicial?: Datos; es
         </label>
         {!esNuevo && <label className="text-sm"><input type="checkbox" checked={f.activo} onChange={(e) => set("activo", e.target.checked)} /> Activo (desmarca para que ya no aparezca al vender)</label>}
 
-        {esNuevo && (
+        {esNuevo && f.tipo !== "servicio" && (
           <>
             <div className="barra-seccion">Existencia inicial (opcional)</div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -115,6 +115,13 @@ export async function nombresUsuarios(ids: string[]): Promise<Record<string, str
   return Object.fromEntries(((data ?? []) as { user_id: string; nombre: string }[]).map((x) => [x.user_id, x.nombre]));
 }
 
+/** Nombre escrito por renglón en conceptos genéricos (0044); vacío si falta la migración */
+async function descripcionesDe(tabla: "venta_partidas" | "cotizacion_partidas", col: "venta_id" | "cotizacion_id", id: string): Promise<Record<number, string>> {
+  const { data, error } = await supabase().from(tabla).select("renglon, descripcion").eq(col, id);
+  if (error || !data) return {};
+  return Object.fromEntries((data as { renglon: number; descripcion: string | null }[]).filter((x) => x.descripcion).map((x) => [x.renglon, x.descripcion!]));
+}
+
 export async function cargarVenta(id: string): Promise<VentaDoc | null> {
   const sb = supabase();
   const [primera, empresa] = await Promise.all([
@@ -133,6 +140,7 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
   const extra = await sb.from("ventas").select("orden_compra, vendedor_id, venta_partidas(renglon, comentario)").eq("id", id).maybeSingle();
   const ext = extra.error ? null : extra.data as { orden_compra: string | null; vendedor_id: string | null; venta_partidas: { renglon: number; comentario: string | null }[] } | null;
   const capturo = ext?.vendedor_id ? (await nombresUsuarios([ext.vendedor_id]))[ext.vendedor_id] ?? null : null;
+  const desc = await descripcionesDe("venta_partidas", "venta_id", id);
   const comentarioDe = (r: number) => ext?.venta_partidas.find((x) => x.renglon === r)?.comentario ?? null;
   // Almacén de cada renglón (0028); si falta la migración, todos salen del almacén de la venta
   const alm = await sb.from("venta_partidas").select("renglon, almacenes(nombre)").eq("venta_id", id);
@@ -143,7 +151,7 @@ export async function cargarVenta(id: string): Promise<VentaDoc | null> {
     ...resto, orden_compra: ext?.orden_compra ?? null, capturo, sucursal: sucursales, almacen: almacenes?.nombre ?? "", cliente: clientes,
     empresa,
     partidas: [...venta_partidas].sort((a, b) => a.renglon - b.renglon).map(({ productos, unidad_nombre, ...p }) => ({
-      ...p, sku: productos.sku, nombre: productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
+      ...p, sku: productos.sku, nombre: desc[p.renglon] ?? productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
       m2_por_pieza: productos.m2_por_caja && productos.piezas_por_caja ? Number(productos.m2_por_caja) / productos.piezas_por_caja : null,
       m2_por_caja: productos.m2_por_caja ?? null,
       formato: productos.formato ?? null,
@@ -458,6 +466,7 @@ export async function cargarCotizacion(id: string): Promise<CotizacionDoc | null
       productos: { sku: string; nombre: string; unidad_base: string; m2_por_caja?: string | null; piezas_por_caja?: number | null; formato?: string | null } }[] };
   const c = r.data as unknown as Fila;
   const capturo = c.vendedor_id ? (await nombresUsuarios([c.vendedor_id]))[c.vendedor_id] ?? null : null;
+  const desc = await descripcionesDe("cotizacion_partidas", "cotizacion_id", c.id);
   return {
     id: c.id, serie: c.serie, folio: c.folio, fecha: c.fecha, tipo: "contado", estado: c.estado === "cancelada" ? "cancelada" : "confirmada",
     subtotal: c.subtotal, descuento: c.descuento, ieps: c.ieps, iva: c.iva, total: c.total, pagado: "0", saldo: "0", cambio: "0",
@@ -467,7 +476,7 @@ export async function cargarCotizacion(id: string): Promise<CotizacionDoc | null
     cliente: c.clientes ?? { nombre: c.prospecto ?? "Público en general", razon_social: null, rfc: null, correo_facturas: null, telefono: null, es_publico_general: !c.prospecto },
     empresa,
     partidas: [...c.cotizacion_partidas].sort((a, b) => a.renglon - b.renglon).map(({ productos, unidad_nombre, ...p }) => ({
-      ...p, sku: productos.sku, nombre: productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
+      ...p, sku: productos.sku, nombre: desc[p.renglon] ?? productos.nombre, unidad_base: productos.unidad_base, unidad: unidad_nombre,
       cantidad_entregada: "0", vendida_sin_existencia: false,
       m2_por_pieza: productos.m2_por_caja && productos.piezas_por_caja ? Number(productos.m2_por_caja) / productos.piezas_por_caja : null,
       m2_por_caja: productos.m2_por_caja ?? null, formato: productos.formato ?? null,

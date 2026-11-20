@@ -23,7 +23,7 @@ describe("reiniciar datos de prueba", () => {
       (select count(*) from movimientos)::int movimientos, (select count(*) from cortes_caja)::int cortes, (select count(*) from retiros_caja)::int retiros,
       (select count(*) from clientes)::int clientes, (select count(*) from clientes where es_publico_general)::int publico,
       (select count(*) from sucursales)::int sucursales, (select count(*) from almacenes)::int almacenes, (select max(siguiente))::int folio from series`);
-    expect(c).toMatchObject({ ventas: 0, productos: 0, movimientos: 0, cortes: 0, retiros: 0, clientes: 1, publico: 1, sucursales: antes, folio: 1 });
+    expect(c).toMatchObject({ ventas: 0, productos: 2, movimientos: 0, cortes: 0, retiros: 0, clientes: 1, publico: 1, sucursales: antes, folio: 1 });
     expect(c.almacenes).toBeGreaterThan(0);
   });
 });

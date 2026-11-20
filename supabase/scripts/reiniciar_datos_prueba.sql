@@ -4,7 +4,8 @@
 --
 -- BORRA: ventas, pagos, devoluciones, cotizaciones, apartados, entregas, entradas, traspasos,
 --        ajustes, existencias y kardex, cortes de caja, retiros y gastos, movimientos de saldo
---        a favor, bitácora (historial), TODOS los productos (con sus precios y unidades) y
+--        a favor, bitácora (historial), TODOS los productos (con sus precios y unidades; se vuelven a crear
+--        los conceptos genéricos CVG y FLETE) y
 --        TODOS los clientes excepto "Público en General".
 -- REINICIA: todos los folios (remisiones, cotizaciones, cortes, etc.) a 1.
 -- CONSERVA: empresa, sucursales, almacenes, cajas, usuarios y permisos, listas de precios,
@@ -33,12 +34,17 @@ truncate table
 delete from public.clientes where not es_publico_general;
 update public.clientes set saldo_a_favor = 0 where es_publico_general and saldo_a_favor <> 0;
 
+-- Conceptos genéricos (CVG, FLETE) de vuelta, si ya existe la migración 0044
+do $$ begin
+  if to_regprocedure('public.asegurar_conceptos_genericos()') is not null then perform public.asegurar_conceptos_genericos(); end if;
+end $$;
+
 -- Folios desde 1
 update public.series set siguiente = 1;
 
 commit;
 
--- Comprobación (todo debe salir en 0, clientes en 1)
+-- Comprobación (todo debe salir en 0, productos en 2 = CVG y FLETE, clientes en 1)
 select (select count(*) from public.ventas) ventas, (select count(*) from public.cotizaciones) cotizaciones,
        (select count(*) from public.productos) productos, (select count(*) from public.movimientos) movimientos,
        (select count(*) from public.cortes_caja) cortes, (select count(*) from public.clientes) clientes,

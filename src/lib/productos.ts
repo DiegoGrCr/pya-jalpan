@@ -28,6 +28,10 @@ export interface ProductoForm {
   codigo_barras: string;
   comentarios: string;
   activo: boolean;
+  /** Servicio o concepto sin inventario (flete, concepto genérico); 0044: nombre/precio se escriben al vender */
+  tipo?: "producto" | "servicio";
+  nombre_libre?: boolean;
+  precio_libre?: boolean;
 }
 
 export const PRODUCTO_VACIO: ProductoForm = {
@@ -77,6 +81,9 @@ export function aPayload(f: ProductoForm): Record<string, unknown> {
     id: f.id, sku: f.sku.trim() || null, nombre: f.nombre.trim(), marca: f.marca.trim() || null, categoria: f.categoria.trim() || null,
     formato: f.formato.trim() || null, presentacion: f.presentacion, codigo_barras: f.codigo_barras.trim() || null,
     comentarios: f.comentarios.trim() || null, activo: f.activo,
+    tipo: f.presentacion === "unidad" ? f.tipo ?? "producto" : "producto",
+    nombre_libre: f.presentacion === "unidad" && f.tipo === "servicio" && !!f.nombre_libre,
+    precio_libre: f.presentacion === "unidad" && f.tipo === "servicio" && !!f.precio_libre,
   };
   const n = (v: string) => num(v)?.toString() ?? null;
   return f.presentacion === "piso"

@@ -24,6 +24,9 @@ export interface ProductoVenta {
   iva_tasa: string;
   ieps_tasa: string;
   tipo: "producto" | "servicio";
+  /** 0044: el nombre / el precio se escriben en la venta (conceptos genéricos como CVG, FLETE) */
+  nombre_libre?: boolean;
+  precio_libre?: boolean;
   unidades: UnidadVenta[];
   /** Pisos: inventario en piezas; se muestran m² con m2_por_caja / piezas_por_caja */
   presentacion?: "piso" | "unidad";
