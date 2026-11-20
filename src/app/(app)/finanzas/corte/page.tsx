@@ -8,7 +8,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { FORMAS_PAGO, cargarEmpresa, fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
-import { $, FORMAS, cuadreEfectivo, estatusCorte, excelCorte, imprimirCorte, pagoDe, totalesVentas,
+import { $, AVISO_SIN_VENTAS, FORMAS, cuadreEfectivo, estatusCorte, excelCorte, imprimirCorte, pagoDe, totalesVentas,
   type DatosCorte, type Linea, type Resumen, type Retiro, type VentaCorte } from "@/lib/corteCaja";
 import { CATEGORIAS_GASTO, FORMAS_GASTO } from "@/lib/gastos";
 
@@ -228,7 +228,7 @@ export default function CorteCaja() {
           </div>
           {r.ventas !== undefined
             ? <div><h2 className="font-medium mb-1">Ventas</h2><VentasCorte ventas={r.ventas} /></div>
-            : <div className="text-sm text-[var(--tenue)]">Para ver el detalle de ventas falta ejecutar la migración 20261119000041_corte_ventas.sql en Supabase.</div>}
+            : <div className="text-sm text-[var(--tenue)]">{AVISO_SIN_VENTAS}</div>}
           <TablaFormas titulo="Entradas" lineas={r.entradas} signo="+" />
           <TablaFormas titulo="Devoluciones de dinero" lineas={r.salidas} signo="−" />
 
@@ -323,7 +323,7 @@ export default function CorteCaja() {
                   <tr><td colSpan={8} className="p-3 bg-[#fafcfb]">
                     <div className="flex flex-col gap-3">
                       <div className="flex justify-end"><button className="px-3 py-1.5 rounded border border-[var(--borde)] text-sm" onClick={() => excelCorte(c.resumen, datosDe(c), archivo(`${c.serie}${c.folio}`, c.hasta))}>Exportar a Excel</button></div>
-                      {c.resumen.ventas && <VentasCorte ventas={c.resumen.ventas} />}
+                      {c.resumen.ventas ? <VentasCorte ventas={c.resumen.ventas} /> : <div className="text-sm text-[var(--tenue)]">{AVISO_SIN_VENTAS}</div>}
                       <div className="grid gap-4 lg:grid-cols-2"><div /><Cuadre r={c.resumen} contado={Number(c.efectivo_contado)} /></div>
                       <TablaFormas titulo="Entradas" lineas={c.resumen.entradas} signo="+" />
                       <TablaFormas titulo="Devoluciones de dinero" lineas={c.resumen.salidas} signo="−" />

@@ -58,3 +58,15 @@ describe("ventas del corte", () => {
     expect(b.pagos).toEqual({});
   });
 });
+
+describe("cortes cerrados", () => {
+  it("guardan el detalle de ventas con sus folios", async () => {
+    const v1 = await venta([{ forma: "efectivo", importe: 720 }]);
+    const r = await rpc(s.cajeroA, "corte_resumen", { sucursal_id: s.sucA });
+    const c = await rpc(s.cajeroA, "cerrar_corte", { idempotency_key: key(), sucursal_id: s.sucA, efectivo_contado: Number(r.efectivo_esperado) });
+    const [g] = await asUser(s.cajeroA, (q) => q.query(`select resumen from cortes_caja where id = $1`, [c.corte_id]).then((x) => x.rows));
+    const fila = g.resumen.ventas.find((x: { id: string }) => x.id === v1.venta_id);
+    expect(fila.folio).toBeTruthy();
+    expect(Number(fila.pagos.efectivo)).toBe(720);
+  });
+});

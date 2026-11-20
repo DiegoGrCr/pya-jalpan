@@ -18,6 +18,7 @@ export interface Resumen {
   gastos?: Gasto[]; gastado?: number; gastado_efectivo?: number; neto?: number; ventas?: VentaCorte[];
   total_general: number; efectivo_esperado: number; por_forma: Record<string, number>;
 }
+export const AVISO_SIN_VENTAS = "Detalle de ventas no disponible: falta ejecutar la migración 20261119000042_corte_ventas_cerrados.sql en Supabase.";
 export const FORMAS = ["efectivo", "tarjeta_debito", "tarjeta_credito", "transferencia"];
 export const $ = (n: number | string) => `$${fmtImporte(Number(n))}`;
 const n = (x: unknown) => Number(x ?? 0);
@@ -101,10 +102,10 @@ export function htmlCorte(r: Resumen, d: DatosCorte): string {
       <div class="r">Del ${fechaMx(r.desde)}<br>al ${fechaMx(r.hasta)}${d.realizo ? `<br><span class="tenue">Realizó: ${esc(d.realizo)}</span>` : ""}</div></div>
     <h2>Ventas</h2>
     <table><thead><tr><th>Folio</th><th>Fecha</th><th>Cliente</th><th class="r">Efectivo</th><th class="r">Tarjeta</th><th class="r">Transferencia</th><th class="r">Otro</th><th class="r">Total</th><th>Estatus</th></tr></thead>
-      <tbody>${filas || `<tr><td colspan="9" class="tenue">Sin ventas en el periodo</td></tr>`}</tbody>
-      <tfoot><tr><td colspan="3">${t.num} venta${t.num === 1 ? "" : "s"}${t.canceladas ? ` · ${t.canceladas} cancelada${t.canceladas === 1 ? "" : "s"}` : ""}</td>
+      <tbody>${r.ventas ? filas || `<tr><td colspan="9" class="tenue">Sin ventas en el periodo</td></tr>` : `<tr><td colspan="9" class="tenue">${AVISO_SIN_VENTAS}</td></tr>`}</tbody>
+      ${r.ventas ? "" : "<!--"}<tfoot><tr><td colspan="3">${t.num} venta${t.num === 1 ? "" : "s"}${t.canceladas ? ` · ${t.canceladas} cancelada${t.canceladas === 1 ? "" : "s"}` : ""}</td>
         <td class="r">${$(t.efectivo)}</td><td class="r">${$(t.tarjeta)}</td><td class="r">${$(t.transferencia)}</td><td class="r">${m(t.otro)}</td><td class="r">${$(t.total)}</td>
-        <td>${t.porCobrar ? `Por cobrar ${$(t.porCobrar)}` : ""}</td></tr></tfoot></table>
+        <td>${t.porCobrar ? `Por cobrar ${$(t.porCobrar)}` : ""}</td></tr></tfoot>${r.ventas ? "" : "-->"}</table>
     <div class="dos">
       <div><h2>Cuadre de efectivo</h2><table><tbody>${cuadre}</tbody></table></div>
       <div><h2>Resumen</h2><table><tbody>
@@ -149,8 +150,11 @@ export async function excelCorte(r: Resumen, d: DatosCorte, archivo: string) {
     if (c) row.font = { color: { argb: "FF9AA6A4" } };
   }
   const t = totalesVentas(r.ventas ?? []);
+  if (!r.ventas) ws.addRow(["", "", AVISO_SIN_VENTAS]).font = { italic: true, color: { argb: "FFB42318" } };
+  else {
   const tot = ws.addRow(["", "", `${t.num} ventas`, t.efectivo, t.tarjeta, t.transferencia, t.otro || null, t.total, t.porCobrar ? `Por cobrar ${$(t.porCobrar)}` : ""]);
   tot.font = { bold: true }; tot.eachCell((c) => { c.border = { top: { style: "medium", color: { argb: "FF0F766E" } } }; });
+  }
   ws.getColumn(4).numFmt = MON; ws.getColumn(5).numFmt = MON; ws.getColumn(6).numFmt = MON; ws.getColumn(7).numFmt = MON; ws.getColumn(8).numFmt = MON;
   ws.addRow([]);
   ws.addRow(["", "", "Cuadre de efectivo"]).font = { bold: true, color: { argb: "FF0F766E" } };
