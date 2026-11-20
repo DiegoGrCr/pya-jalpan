@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { EMPRESA_VACIA, EmpresaDoc, VentaDoc, cargarEmpresa, generarPdf } from "@/lib/documentoVenta";
+import { TEMPORADAS, temporadaDe, type Temporada } from "@/lib/temporadas";
 
 interface SucursalDoc { id: string; codigo: string; nombre: string; direccion: string | null; cp_expedicion: string | null; telefono: string | null; lugar_expedicion: string | null }
 
@@ -82,6 +83,11 @@ export default function EmpresaDocumentos() {
       if (error && /nombre_emisor|condiciones_venta|remision_|column/.test(error.message))
         throw new Error("Falta ejecutar en Supabase las migraciones 20261112000010_documentos.sql y 20261112000011_logos.sql.");
       if (error) throw error;
+      const dt = await sb.from("empresa").update({ decoracion_temporada: e.decoracion_temporada }).eq("id", 1);
+      if (dt.error) {
+        if (/decoracion_temporada/.test(dt.error.message)) throw new Error("Para activar o desactivar la decoración de temporada ejecuta en Supabase la migración 20261120000045_decoracion_temporada.sql.");
+        throw dt.error;
+      }
       for (const s of sucs) {
         const r = await sb.rpc("actualizar_sucursal", { p: { id: s.id, direccion: s.direccion ?? "", cp_expedicion: s.cp_expedicion ?? "", telefono: s.telefono ?? "", lugar_expedicion: s.lugar_expedicion ?? "" } });
         if (r.error) throw r.error;
@@ -91,9 +97,9 @@ export default function EmpresaDocumentos() {
     } catch (err) { setMsg({ tipo: "error", texto: mensajeError(err) }); } finally { setGuardando(false); }
   };
 
-  const vistaPrevia = async () => {
+  const vistaPrevia = async (temporada?: Temporada | null) => {
     try {
-      const b = await generarPdf(ventaEjemplo(e, sucs[0]), "carta");
+      const b = await generarPdf({ ...ventaEjemplo(e, sucs[0]), ...(temporada !== undefined ? { temporada } : {}) }, "carta");
       window.open(URL.createObjectURL(b), "_blank");
     } catch (err) { setMsg({ tipo: "error", texto: mensajeError(err) }); }
   };
@@ -183,8 +189,27 @@ export default function EmpresaDocumentos() {
             <span className="text-[var(--tenue)]"> (si no se marca, los precios se muestran con IVA incluido e “I.V.A. 0%”, como en las notas actuales)</span></label>
         </div>
 
+        <div className="barra-seccion mt-6">Decoración de temporada</div>
+        <div className="flex flex-col gap-2 mt-3 text-sm">
+          <label><input type="checkbox" disabled={!admin} checked={e.decoracion_temporada}
+            onChange={(ev) => setE((x) => ({ ...x, decoracion_temporada: ev.target.checked }))} /> Adornar remisiones y cotizaciones según la temporada
+            <span className="text-[var(--tenue)]"> (franja arriba de la hoja y un saludo en el pie; se activa sola en cada fecha)</span></label>
+          <ul className="text-xs text-[var(--tenue)] ml-5 list-disc">
+            {(Object.entries(TEMPORADAS) as [Temporada, (typeof TEMPORADAS)[Temporada]][]).map(([k, t]) => (
+              <li key={k}>{t.nombre}: del {t.desde.split("-").reverse().join("/")} al {t.hasta.split("-").reverse().join("/")}
+                {temporadaDe() === k && <b className="text-[var(--acento)]"> · vigente hoy</b>}</li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap gap-2 items-center">
+            <span>Ver ejemplo:</span>
+            {(Object.entries(TEMPORADAS) as [Temporada, (typeof TEMPORADAS)[Temporada]][]).map(([k, t]) => (
+              <button key={k} className="px-2.5 py-1 rounded border border-[var(--borde)] text-xs" onClick={() => vistaPrevia(k)}>{t.nombre}</button>
+            ))}
+          </div>
+        </div>
+
         <div className="flex justify-end gap-2 mt-6">
-          <button className="px-3 py-2 underline" onClick={vistaPrevia}>Vista previa del PDF</button>
+          <button className="px-3 py-2 underline" onClick={() => vistaPrevia()}>Vista previa del PDF</button>
           {admin && <button className="btn-primario" disabled={guardando} onClick={guardar}>{guardando ? "Guardando…" : "Guardar"}</button>}
         </div>
       </section>

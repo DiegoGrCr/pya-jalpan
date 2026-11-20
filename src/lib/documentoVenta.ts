@@ -5,6 +5,7 @@
  * partidas, importe con letra y totales, notas, condiciones generales y firma del cliente.
  */
 import { supabase } from "@/lib/supabase/client";
+import { decorarPagina, temporadaDe, type Temporada } from "@/lib/temporadas";
 import { fmtCantidad, mxn, nombreConCaja } from "@/lib/unidades";
 import { fechaCorta, fechaLarga, importeConLetra } from "@/lib/letras";
 
@@ -30,6 +31,8 @@ export interface PagoDoc { forma: string; importe: string; referencia: string | 
 export interface EmpresaDoc {
   razon_social: string | null; nombre_emisor: string | null; rfc: string | null; telefono: string | null; logos: string[];
   condiciones_venta: string | null; remision_titulo: string; remision_firma: boolean; remision_desglosa_iva: boolean;
+  /** Adornos de temporada en remisión y cotización (0045); activado por omisión */
+  decoracion_temporada: boolean;
 }
 export interface VentaDoc {
   id: string; serie: string; folio: number; fecha: string; tipo: "contado" | "credito"; estado: "confirmada" | "cancelada";
@@ -45,11 +48,13 @@ export interface VentaDoc {
   cliente: { nombre: string; razon_social: string | null; rfc: string | null; correo_facturas: string | null; telefono: string | null; es_publico_general: boolean };
   empresa: EmpresaDoc;
   partidas: PartidaDoc[]; pagos: PagoDoc[];
+  /** Forzar una temporada (vista previa); sin definir = la de la fecha si está activada */
+  temporada?: Temporada | null;
 }
 
 export const EMPRESA_VACIA: EmpresaDoc = {
   razon_social: null, nombre_emisor: null, rfc: null, telefono: null, logos: [], condiciones_venta: null,
-  remision_titulo: "Remisión", remision_firma: true, remision_desglosa_iva: false,
+  remision_titulo: "Remisión", remision_firma: true, remision_desglosa_iva: false, decoracion_temporada: true,
 };
 
 export const folioDe = (v: Pick<VentaDoc, "serie" | "folio">) => `${v.serie} ${v.folio}`;   // "AR 14"
@@ -101,7 +106,10 @@ export async function cargarEmpresa(): Promise<EmpresaDoc> {
     const d = (data ?? {}) as Partial<EmpresaDoc> & { logo?: string | null };
     const logos = Array.isArray(d.logos) ? d.logos : d.logo ? [d.logo] : [];
     const { logo: _anterior, ...resto } = d; void _anterior;
-    return { ...EMPRESA_VACIA, ...resto, logos };
+    // Decoración de temporada (0045): consulta aparte; si falta la migración queda activada
+    const dt = await sb.from("empresa").select("decoracion_temporada").maybeSingle();
+    const decoracion_temporada = dt.error ? true : (dt.data as { decoracion_temporada?: boolean } | null)?.decoracion_temporada !== false;
+    return { ...EMPRESA_VACIA, ...resto, logos, decoracion_temporada };
   }
   return EMPRESA_VACIA;
 }
@@ -343,10 +351,12 @@ function pdfCarta(doc: Doc, v: VentaDoc, autoTable: AutoTable): Blob {
     doc.text("FIRMA DEL CLIENTE", M + 1 + 29.5, y + 3, { align: "center" });
   }
 
-  // ---------- Pie y sello de cancelada en cada página ----------
+  // ---------- Pie, adornos de temporada y sello de cancelada en cada página ----------
   const paginas = doc.getNumberOfPages();
+  const temporada = v.temporada !== undefined ? v.temporada : v.empresa.decoracion_temporada ? temporadaDe() : null;
   for (let i = 1; i <= paginas; i++) {
     doc.setPage(i);
+    if (temporada) decorarPagina(doc, temporada, W, H, v.estado !== "cancelada");
     doc.setDrawColor(...AZUL).setLineWidth(1).line(M, H - 11, W - M, H - 11).setLineWidth(0.2);
     doc.setTextColor(...TEXTO).setFont("helvetica", "bold").setFontSize(8.5).text(`Página ${i} de ${paginas}`, W - M, H - 7, { align: "right" });
     doc.setFont("helvetica", "normal").setFontSize(6.5).setTextColor(130).text("Este documento no es un comprobante fiscal.", M, H - 7);
