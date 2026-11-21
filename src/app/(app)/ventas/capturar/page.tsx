@@ -5,6 +5,7 @@
  * partidas (Código · Unidad · Concepto con existencia · Cant. · Precio · Importe),
  * sección Pagos, comentarios y totales a la derecha. Guarda con confirmar_venta (una transacción).
  */
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { useRouter } from "next/navigation";
@@ -30,7 +31,7 @@ interface Linea {
   descripcion?: string;
 }
 interface Pago { forma: Forma; importe: string; referencia: string }
-interface Cliente { id: string; nombre: string; rfc: string | null; es_publico_general: boolean; lista_precios_id: string | null; limite_credito: string; dias_credito: number }
+interface Cliente { id: string; nombre: string; rfc: string | null; es_publico_general: boolean; lista_precios_id: string | null; limite_credito: string; dias_credito: number; bloqueado?: boolean }
 interface Almacen { id: string; nombre: string; sucursal_id: string; multisucursal: boolean }
 interface Sucursal { id: string; codigo: string; nombre: string; cp_expedicion: string | null; direccion?: string | null; telefono?: string | null; almacen_predeterminado_id?: string | null }
 interface Captura {
@@ -46,7 +47,7 @@ interface Captura {
   desdeCotizacion?: { id: string; folio: string };
 }
 interface DetalleProducto { producto: ProductoVenta; filas: { almacen: string; cantidad: number; apartado: number }[] | null }
-const CLIENTE_COLS = "id, nombre, rfc, es_publico_general, lista_precios_id, limite_credito, dias_credito";
+const CLIENTE_COLS = "id, nombre, rfc, es_publico_general, lista_precios_id, limite_credito, dias_credito, bloqueado";
 const RFC_VALIDO = /^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/;
 /** Número o cero (para campos que se están escribiendo) */
 const dec = (v: string | undefined) => { try { const d = new Decimal(v || 0); return d.isFinite() ? d : new Decimal(0); } catch { return new Decimal(0); } };
@@ -95,6 +96,8 @@ export default function CapturarVenta() {
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string; avisos?: string[] } | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [saldoFavor, setSaldoFavor] = useState(0);
+  const [deuda, setDeuda] = useState<{ debe: number; vencido: number } | null>(null);   // del cliente, para la venta a crédito
+  const [puedeAutorizar, setPuedeAutorizar] = useState(false);
   const [cambiarCliente, setCambiarCliente] = useState(false);
   const [diferencia, setDiferencia] = useState<{ exceso: Decimal; opcion: "devolver" | "saldo_favor"; forma: Forma } | null>(null);
   const busRef = useRef<HTMLInputElement>(null);
@@ -361,6 +364,21 @@ export default function CapturarVenta() {
     supabase().from("clientes").select("saldo_a_favor").eq("id", c.cliente.id).maybeSingle()
       .then(({ data }: { data: unknown }) => setSaldoFavor(Number((data as { saldo_a_favor?: string } | null)?.saldo_a_favor ?? 0)));
   }, [c.cliente]);
+
+  // Lo que debe el cliente (para avisar en la venta a crédito antes de guardar)
+  useEffect(() => {
+    setDeuda(null);
+    if (c.tipo !== "credito" || !c.cliente || c.cliente.es_publico_general) return;
+    const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" });
+    const sb = supabase();
+    sb.from("ventas").select("id, saldo, vencimiento").eq("cliente_id", c.cliente.id).eq("estado", "confirmada").gt("saldo", 0)
+      .then(({ data }: { data: unknown }) => {
+        const f = ((data ?? []) as { id: string; saldo: string; vencimiento: string | null }[]).filter((x) => x.id !== c.edicion?.ventaId);
+        setDeuda({ debe: f.reduce((a, x) => a + Number(x.saldo), 0),
+          vencido: f.filter((x) => x.vencimiento && x.vencimiento < hoy).reduce((a, x) => a + Number(x.saldo), 0) });
+      });
+    sb.rpc("tiene_permiso", { p_permiso: "otorgar_credito" }).then(({ data }: { data: unknown }) => setPuedeAutorizar(data === true));
+  }, [c.tipo, c.cliente, c.edicion?.ventaId]);
 
   // ---------- importes ----------
   // Remisión sin IVA (predeterminado): el precio es el importe final y la tasa de IVA queda en 0
@@ -641,6 +659,30 @@ export default function CapturarVenta() {
           </label>
           </>}
         </div>
+
+        {!c.cotizacion && c.tipo === "credito" && c.cliente && !c.cliente.es_publico_general && deuda && (() => {
+          const cli = c.cliente;
+          const limite = Number(cli.limite_credito);
+          const nuevo = deuda.debe + total.toNumber();
+          const vence = new Date(Date.now() + cli.dias_credito * 86_400_000).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "2-digit", year: "numeric" });
+          const problemas = [
+            cli.bloqueado && "El cliente está bloqueado para crédito.",
+            deuda.vencido > 0 && `Tiene $${fmtImporte(deuda.vencido)} vencido.`,
+            limite <= 0 ? "El cliente no tiene límite de crédito (se asigna en su ficha › Crédito)."
+              : nuevo > limite && `Con esta venta debería $${fmtImporte(nuevo)} y su límite es $${fmtImporte(limite)}.`,
+          ].filter(Boolean) as string[];
+          return (
+            <div className={`mt-3 rounded px-3 py-2 text-sm ${problemas.length ? "bg-amber-100 text-amber-900" : "bg-[var(--resalte)]"}`}>
+              <div>
+                Vence el <b>{vence}</b>{cli.dias_credito === 0 && " (0 días: vence hoy)"} · Debe ${fmtImporte(deuda.debe)}
+                {limite > 0 && <> · Límite ${fmtImporte(limite)} · Disponible <b>${fmtImporte(Math.max(0, limite - deuda.debe))}</b></>}
+                {" · "}<Link className="underline" href={`/ventas/clientes/${cli.id}`} target="_blank">ver crédito del cliente</Link>
+              </div>
+              {problemas.map((m) => <div key={m}>⚠ {m}</div>)}
+              {problemas.length > 0 && <div className="text-xs mt-1">{puedeAutorizar ? "Tienes permiso para autorizarla de todos modos." : "Solo un gerente o administrador puede autorizar esta venta a crédito."}</div>}
+            </div>
+          );
+        })()}
 
         {/* Partidas */}
         <div className="overflow-x-auto mt-4">
