@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { EsqueletoFilas } from "@/components/Esqueleto";
+import { IconoEditar, IconoVer } from "@/components/Iconos";
 
 interface Fila {
   id: string; nombre: string; razon_social: string | null; rfc: string | null; telefono: string | null; correo_facturas: string | null;
@@ -84,11 +85,11 @@ export default function Clientes() {
           <thead style={{ color: "var(--acento)" }}>
             <tr className="text-left border-b border-[var(--borde)]">
               <th className="p-2 font-normal">Cliente</th><th className="pr-3 font-normal">RFC</th><th className="pr-3 font-normal">Teléfono</th>
-              <th className="pr-3 font-normal text-right">Por cobrar</th><th className="pr-3 font-normal text-right">Saldo a favor</th><th className="pr-2 font-normal">Última compra</th>
+              <th className="pr-3 font-normal text-right">Por cobrar</th><th className="pr-3 font-normal text-right">Saldo a favor</th><th className="pr-2 font-normal">Última compra</th><th className="pr-2 font-normal text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {cargando && !filas.length && <EsqueletoFilas columnas={6} />}
+            {cargando && !filas.length && <EsqueletoFilas columnas={7} />}
             {filas.map((f, i) => (
               <tr key={f.id} className="border-b border-[var(--borde)]" style={{ background: i % 2 ? undefined : "#f7f9fb" }}>
                 <td className="p-2"><Link className="underline" href={`/ventas/clientes/${f.id}`}>{f.razon_social || f.nombre}</Link>
@@ -98,9 +99,15 @@ export default function Clientes() {
                   {Number(f.por_cobrar) > 0 ? <>${fmtImporte(f.por_cobrar)}<div className="text-xs font-normal">{f.ventas_con_saldo} venta{f.ventas_con_saldo === 1 ? "" : "s"}</div></> : "—"}</td>
                 <td className={`pr-3 text-right ${Number(f.saldo_a_favor) > 0 ? "text-emerald-700 font-semibold" : "text-[var(--tenue)]"}`}>{Number(f.saldo_a_favor) > 0 ? `$${fmtImporte(f.saldo_a_favor)}` : "—"}</td>
                 <td className="pr-2">{f.ultima_compra ? new Date(f.ultima_compra).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City" }) : "—"}</td>
+                <td className="pr-2 py-1 text-right whitespace-nowrap">
+                  <Link href={`/ventas/clientes/${f.id}`} title="Ver ficha" aria-label={`Ver ficha de ${f.razon_social || f.nombre}`}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded border border-[var(--borde)] hover:bg-[var(--resalte)] mr-1.5"><IconoVer /> Ver</Link>
+                  <Link href={`/ventas/clientes/${f.id}?editar=1`} title="Editar cliente" aria-label={`Editar ${f.razon_social || f.nombre}`}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]"><IconoEditar /> Editar</Link>
+                </td>
               </tr>
             ))}
-            {!cargando && filas.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-[var(--tenue)]">No hay clientes con esos filtros.</td></tr>}
+            {!cargando && filas.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-[var(--tenue)]">No hay clientes con esos filtros.</td></tr>}
           </tbody>
         </table>
       </section>

@@ -11,6 +11,7 @@ import { fmtImporte } from "@/lib/unidades";
 import { FORMAS_PAGO, fechaMx } from "@/lib/documentoVenta";
 import EstatusVenta from "@/components/EstatusVenta";
 import { EsqueletoFicha } from "@/components/Esqueleto";
+import { IconoEditar } from "@/components/Iconos";
 
 interface Cliente { id: string; nombre: string; razon_social: string | null; rfc: string | null; telefono: string | null; correo_facturas: string | null; direccion: string | null; saldo_a_favor?: string; es_publico_general: boolean;
   limite_credito: string; dias_credito: number; bloqueado: boolean }
@@ -32,6 +33,8 @@ export default function FichaCliente() {
   const [pestana, setPestana] = useState<"cartera" | "ventas" | "credito" | "datos">("cartera");
   const [credito, setCredito] = useState<{ limite: string; dias: string; bloqueado: boolean } | null>(null);
   const [puedeCredito, setPuedeCredito] = useState(false);
+  // Desde la lista con "Editar": abrir directo en Datos
+  useEffect(() => { if (new URLSearchParams(window.location.search).get("editar")) setPestana("datos"); }, []);
   const [abono, setAbono] = useState<{ clave: string; importe: string; forma: string; referencia: string; sucursal: string } | null>(null);
   const [sucursales, setSucursales] = useState<{ id: string; codigo: string; nombre: string }[]>([]);
   useEffect(() => {
@@ -122,6 +125,10 @@ export default function FichaCliente() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold">{c.razon_social || c.nombre}</h1>
         <div className="flex gap-3 items-center text-sm">
+          {!c.es_publico_general && pestana !== "datos" && (
+            <button onClick={() => setPestana("datos")} className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]">
+              <IconoEditar /> Editar cliente</button>
+          )}
           <Link href="/ventas/capturar" className="btn-primario">Nueva venta</Link>
           <Link href="/ventas/clientes" className="underline">← Clientes</Link>
         </div>
