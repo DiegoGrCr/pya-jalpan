@@ -6,6 +6,7 @@
  * sección Pagos, comentarios y totales a la derecha. Guarda con confirmar_venta (una transacción).
  */
 import Link from "next/link";
+import { IconoVer } from "@/components/Iconos";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Decimal from "decimal.js";
 import { useRouter } from "next/navigation";
@@ -770,7 +771,7 @@ export default function CapturarVenta() {
                       {l.producto.tipo === "servicio" && <span className="ml-1 px-1.5 rounded text-[10px] bg-sky-100 text-sky-900 align-middle">Sin inventario</span>}
                       <button className="ml-2 align-middle inline-flex items-center justify-center w-6 h-5 border rounded border-[var(--acento)] text-[var(--acento)]" title="Ver detalle y existencia por almacén"
                         aria-label="Ver detalle del producto" onClick={() => verDetalle(l.producto)}>
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" /></svg>
+                        <IconoVer />
                       </button>
                       {l.producto.tipo === "producto" && exU && (
                         <div className={`text-xs mt-1 ${exU.lt(0) || sinEx ? "text-[var(--peligro)] font-semibold" : "text-[var(--tenue)]"}`}>

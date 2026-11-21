@@ -9,6 +9,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { fechaMx, nombresUsuarios } from "@/lib/documentoVenta";
 import { EsqueletoFilas } from "@/components/Esqueleto";
+import { BotonAccion } from "@/components/Iconos";
 
 interface Fila {
   id: string; serie: string; folio: number; fecha: string; documento_proveedor: string | null; estado: "aplicada" | "cancelada";
@@ -71,9 +72,9 @@ export default function Recepcion() {
             <th className="p-2 font-normal">Folio</th><th className="font-normal">Fecha</th><th className="font-normal">Proveedor</th>
             <th className="font-normal">Documento</th><th className="font-normal">Almacén</th><th className="font-normal text-right pr-3">Subtotal</th>
             <th className="font-normal text-right pr-3">I.V.A.</th><th className="font-normal text-right pr-3">Total</th>
-            <th className="font-normal">Estado</th><th className="font-normal">Recibió</th></tr></thead>
+            <th className="font-normal">Estado</th><th className="font-normal">Recibió</th><th className="pr-2" /></tr></thead>
           <tbody>
-            {cargando && !filas.length && <EsqueletoFilas columnas={10} />}
+            {cargando && !filas.length && <EsqueletoFilas columnas={11} />}
             {filas.map((x) => (
               <tr key={x.id} className="border-b border-[var(--borde)]">
                 <td className="p-2 whitespace-nowrap"><Link className="underline" href={`/inventarios/recepcion/${x.id}`}>{x.serie} {x.folio}</Link></td>
@@ -88,9 +89,10 @@ export default function Recepcion() {
                   ? <span className="px-1.5 rounded text-xs bg-gray-200 text-gray-700">Cancelada</span>
                   : <span className="px-1.5 rounded text-xs bg-emerald-100 text-emerald-900">Aplicada</span>}</td>
                 <td>{x.usuario_id ? nombres[x.usuario_id] ?? "" : ""}</td>
+                <td className="pr-2 py-1 text-right"><BotonAccion tipo="abrir" titulo={`Ver detalle de ${x.serie} ${x.folio}`} href={`/inventarios/recepcion/${x.id}`} /></td>
               </tr>
             ))}
-            {!cargando && !filas.length && <tr><td colSpan={10} className="p-6 text-center text-[var(--tenue)]">No hay recepciones con esos filtros.</td></tr>}
+            {!cargando && !filas.length && <tr><td colSpan={11} className="p-6 text-center text-[var(--tenue)]">No hay recepciones con esos filtros.</td></tr>}
           </tbody>
         </table>
       </section>

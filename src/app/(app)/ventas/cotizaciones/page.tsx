@@ -9,6 +9,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { estatusCotizacion } from "@/lib/cotizaciones";
 import { EsqueletoFilas } from "@/components/Esqueleto";
+import { BotonAccion } from "@/components/Iconos";
 
 interface Fila {
   id: string; serie: string; folio: number; fecha: string; vigencia: string; estado: "borrador" | "enviada" | "convertida" | "cancelada";
@@ -77,8 +78,6 @@ export default function Cotizaciones() {
   useEffect(() => { const h = setTimeout(cargar, 250); return () => clearTimeout(h); }, [cargar]);
   useEffect(() => { setPagina(0); }, [texto, desde, hasta, sucursal, estatus]);
 
-  const icono = (d: string) => <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"><path d={d} /></svg>;
-  const boton = "inline-flex items-center justify-center w-7 h-7 rounded border hover:bg-[var(--resalte)]";
   const sumaVigentes = filas.filter((f) => f.estado !== "cancelada").reduce((s, f) => s + Number(f.total), 0);
 
   return (
@@ -132,12 +131,9 @@ export default function Cotizaciones() {
                   <td className="pr-3 py-2 max-w-[260px] text-xs">{f.comentarios}</td>
                   <td className="pr-2 py-1.5 whitespace-nowrap text-right">
                     <span className="inline-flex gap-1">
-                      {abierta && <Link href={`/ventas/capturar?desde_cotizacion=${f.id}`} title="Generar venta" aria-label={`Generar venta de ${f.serie} ${f.folio}`}
-                        className={`${boton} border-emerald-600 text-emerald-700`}>{icono("M3 4h2l2.5 11h11L21 7H6.2M9 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm9 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z")}</Link>}
-                      {abierta && <Link href={`/ventas/capturar?cotizacion=${f.id}`} title="Editar" aria-label={`Editar ${f.serie} ${f.folio}`}
-                        className={`${boton} border-[var(--acento)] text-[var(--acento)]`}>{icono("M4 20h4L19 9l-4-4L4 16v4Z")}</Link>}
-                      <Link href={`/ventas/cotizaciones/${f.id}`} title="Ver detalle" aria-label={`Ver ${f.serie} ${f.folio}`}
-                        className={`${boton} border-[var(--acento)] text-[var(--acento)]`}>{icono("M14 4h6v6M20 4l-9 9M18 14v6H4V6h6")}</Link>
+                      {abierta && <BotonAccion tipo="venta" titulo={`Generar venta de ${f.serie} ${f.folio}`} href={`/ventas/capturar?desde_cotizacion=${f.id}`} />}
+                      {abierta && <BotonAccion tipo="editar" titulo={`Editar ${f.serie} ${f.folio}`} href={`/ventas/capturar?cotizacion=${f.id}`} />}
+                      <BotonAccion tipo="abrir" titulo={`Ver detalle de ${f.serie} ${f.folio}`} href={`/ventas/cotizaciones/${f.id}`} />
                     </span>
                   </td>
                 </tr>

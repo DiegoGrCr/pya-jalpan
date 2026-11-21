@@ -5,7 +5,7 @@ import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { fmtImporte } from "@/lib/unidades";
 import { EsqueletoFilas } from "@/components/Esqueleto";
-import { IconoEditar, IconoVer } from "@/components/Iconos";
+import { BotonAccion } from "@/components/Iconos";
 
 interface Fila {
   id: string; nombre: string; razon_social: string | null; rfc: string | null; telefono: string | null; correo_facturas: string | null;
@@ -100,10 +100,10 @@ export default function Clientes() {
                 <td className={`pr-3 text-right ${Number(f.saldo_a_favor) > 0 ? "text-emerald-700 font-semibold" : "text-[var(--tenue)]"}`}>{Number(f.saldo_a_favor) > 0 ? `$${fmtImporte(f.saldo_a_favor)}` : "—"}</td>
                 <td className="pr-2">{f.ultima_compra ? new Date(f.ultima_compra).toLocaleDateString("es-MX", { timeZone: "America/Mexico_City" }) : "—"}</td>
                 <td className="pr-2 py-1 text-right whitespace-nowrap">
-                  <Link href={`/ventas/clientes/${f.id}`} title="Ver ficha" aria-label={`Ver ficha de ${f.razon_social || f.nombre}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded border border-[var(--borde)] hover:bg-[var(--resalte)] mr-1.5"><IconoVer /> Ver</Link>
-                  <Link href={`/ventas/clientes/${f.id}?editar=1`} title="Editar cliente" aria-label={`Editar ${f.razon_social || f.nombre}`}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]"><IconoEditar /> Editar</Link>
+                  <span className="inline-flex gap-1">
+                    <BotonAccion tipo="editar" titulo={`Editar ${f.razon_social || f.nombre}`} href={`/ventas/clientes/${f.id}?editar=1`} />
+                    <BotonAccion tipo="abrir" titulo={`Ver ficha de ${f.razon_social || f.nombre}`} href={`/ventas/clientes/${f.id}`} />
+                  </span>
                 </td>
               </tr>
             ))}

@@ -11,6 +11,7 @@ import { TIPO_VENTA, fmtImporte } from "@/lib/unidades";
 import { nombresUsuarios } from "@/lib/documentoVenta";
 import EstatusVenta from "@/components/EstatusVenta";
 import { EsqueletoFilas } from "@/components/Esqueleto";
+import { BotonAccion } from "@/components/Iconos";
 
 interface Fila {
   id: string; serie: string; folio: number; fecha: string; tipo: "contado" | "credito"; estado: "confirmada" | "cancelada";
@@ -166,10 +167,7 @@ export default function ListaVentas() {
                   <td className="pr-3 text-right whitespace-nowrap">{cancelada ? "" : `$${fmtImporte(f.saldo)}`}</td>
                   <td className="pr-3"><EstatusVenta estado={f.estado} saldo={f.saldo} cerrada={f.cerrada} porEntregar={sinEntregar} /></td>
                   <td className="pr-2 text-center">
-                    <Link href={`/ventas/${f.id}`} title="Ver detalle" aria-label={`Ver detalle de ${f.serie} ${f.folio}`}
-                      className="inline-flex items-center justify-center w-7 h-7 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" /></svg>
-                    </Link>
+                    <BotonAccion tipo="abrir" titulo={`Ver detalle de ${f.serie} ${f.folio}`} href={`/ventas/${f.id}`} />
                   </td>
                 </tr>
               );

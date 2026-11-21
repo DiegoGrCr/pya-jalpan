@@ -6,6 +6,7 @@ import { supabase, mensajeError } from "@/lib/supabase/client";
 import { generarPlantilla } from "@/lib/productos";
 import { fmtCantidad, mxnPrecio as mxn } from "@/lib/unidades";
 import { EsqueletoFilas } from "@/components/Esqueleto";
+import { BotonAccion } from "@/components/Iconos";
 
 interface Fila {
   id: string; sku: string; nombre: string; imagen_url: string | null; formato: string | null; presentacion: "piso" | "unidad"; unidad_base: string;
@@ -136,11 +137,11 @@ export default function Productos() {
             <tr className="text-left">
               <th className="p-2 font-normal w-12"></th><th className="font-normal">SKU</th><th className="font-normal">Descripción</th><th className="font-normal">Marca</th>
               <th className="font-normal">Formato</th><th className="font-normal">Caja</th><th className="font-normal">Precio</th>
-              <th className="font-normal text-right pr-2">Existencia</th>
+              <th className="font-normal text-right pr-2">Existencia</th>{puedeEditar && <th className="pr-2" />}
             </tr>
           </thead>
           <tbody>
-            {cargando && !filas.length && <EsqueletoFilas columnas={8} />}
+            {cargando && !filas.length && <EsqueletoFilas columnas={puedeEditar ? 9 : 8} />}
             {filasVista.map(({ f, existencia, precioTxt, negativa }, i) => (
               <tr key={f.id} className="border-t border-[var(--borde)]" style={{ background: i % 2 ? "transparent" : "#f7f9fb", opacity: f.activo ? 1 : 0.5 }}>
                 <td className="p-1.5 pl-2">{f.imagen_url
@@ -153,10 +154,11 @@ export default function Productos() {
                 <td className="py-2 whitespace-nowrap">{f.presentacion === "piso" ? `${f.piezas_por_caja} pz · ${fmtCantidad(f.m2_por_caja ?? 0)} m²` : f.unidad_base}</td>
                 <td className={`py-2 whitespace-nowrap ${precioTxt === "$0.00" ? "text-amber-700 font-semibold" : ""}`}>{precioTxt}</td>
                 <td className={`py-2 pr-2 text-right whitespace-nowrap ${negativa ? "text-[var(--peligro)] font-semibold" : ""}`}>{existencia}</td>
+                {puedeEditar && <td className="pr-2 text-right"><BotonAccion tipo="editar" titulo={`Editar ${f.sku}`} href={`/compras/productos/${f.id}`} /></td>}
               </tr>
             ))}
             {!cargando && filas.length === 0 && (
-              <tr><td colSpan={8} className="p-6 text-center text-[var(--tenue)]">
+              <tr><td colSpan={9} className="p-6 text-center text-[var(--tenue)]">
                 No hay productos{texto || marca || categoria ? " con esos filtros" : ""}. {puedeEditar && <>Da de alta uno con <b>+ Nuevo producto</b> o súbelos con <b>Importar desde Excel</b>.</>}
               </td></tr>
             )}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { DialogoProveedor, type Proveedor } from "@/components/DialogoProveedor";
+import { BotonAccion } from "@/components/Iconos";
 
 export default function Proveedores() {
   const [filas, setFilas] = useState<Proveedor[]>([]);
@@ -38,16 +39,17 @@ export default function Proveedores() {
         <table className="w-full text-sm min-w-[720px]">
           <thead style={{ color: "var(--acento)" }}><tr className="text-left border-b border-[var(--borde)]">
             <th className="p-2 font-normal">Nombre</th><th className="font-normal">RFC</th><th className="font-normal">Contacto</th>
-            <th className="font-normal">Teléfono</th><th className="font-normal">Correo</th><th className="font-normal text-right pr-2">Días crédito</th></tr></thead>
+            <th className="font-normal">Teléfono</th><th className="font-normal">Correo</th><th className="font-normal text-right pr-2">Días crédito</th><th className="pr-2" /></tr></thead>
           <tbody>
             {vis.map((x) => (
               <tr key={x.id} className="border-b border-[var(--borde)] cursor-pointer hover:bg-[var(--resalte)]" onClick={() => setEditando(x)}>
                 <td className="p-2">{x.nombre}{!x.activo && <span className="text-[var(--tenue)]"> (inactivo)</span>}</td>
                 <td>{x.rfc ?? "—"}</td><td>{x.contacto ?? "—"}</td><td>{x.telefono ?? "—"}</td><td>{x.correo ?? "—"}</td>
                 <td className="text-right pr-2">{x.dias_credito}</td>
+                <td className="pr-2 py-1 text-right"><BotonAccion tipo="editar" titulo={`Editar ${x.nombre}`} onClick={() => setEditando(x)} /></td>
               </tr>
             ))}
-            {!vis.length && <tr><td colSpan={6} className="p-6 text-center text-[var(--tenue)]">No hay proveedores. Da de alta el primero con “+ Nuevo proveedor”.</td></tr>}
+            {!vis.length && <tr><td colSpan={7} className="p-6 text-center text-[var(--tenue)]">No hay proveedores. Da de alta el primero con “+ Nuevo proveedor”.</td></tr>}
           </tbody>
         </table>
       </section>
