@@ -489,9 +489,12 @@ export default function CapturarVenta() {
     setGuardando(true); setMsg(null);
     try {
       const publicoSel = !c.cliente || c.cliente.es_publico_general;
+      // Público en general sin "A nombre de": la cotización queda a nombre de Público en general
+      const interesado = publicoSel ? c.cotizacion.prospecto?.trim() || null : null;
+      const idPublico = (c.cliente?.es_publico_general ? c.cliente.id : publico?.id) ?? null;
       const { data, error } = await supabase().rpc("guardar_cotizacion", { p: {
         id: c.cotizacion.id ?? null, idempotency_key: c.clave, sucursal_id: c.sucursalId, almacen_id: c.almacenId, lista_id: lista?.id,
-        cliente_id: publicoSel ? null : c.cliente!.id, prospecto: publicoSel ? (c.cotizacion.prospecto?.trim() || null) : null,
+        cliente_id: publicoSel ? (interesado ? null : idPublico) : c.cliente!.id, prospecto: interesado ?? (publicoSel && !idPublico ? "Público en general" : null),
         vigencia: c.cotizacion.vigencia, comentarios: c.comentarios || null, sin_iva: sinIva,
         partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad, precio_unitario: l.precio,
           descuento: descuentos.porRenglon[i].toFixed(2), comentario: l.comentario?.trim() || null,
