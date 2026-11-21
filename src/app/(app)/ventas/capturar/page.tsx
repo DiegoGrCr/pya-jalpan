@@ -90,6 +90,8 @@ export default function CapturarVenta() {
   const [buscando, setBuscando] = useState(false);
   const [texto, setTexto] = useState("");
   const [resultados, setResultados] = useState<ProductoVenta[]>([]);
+  const [masVendidos, setMasVendidos] = useState<Record<string, number>>({});   // producto → en cuántas ventas aparece
+  const cajaBusqueda = useRef<HTMLDivElement>(null);
   const [textoCliente, setTextoCliente] = useState("");
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [enLinea, setEnLinea] = useState(true);
@@ -265,25 +267,56 @@ export default function CapturarVenta() {
     if (!buscando) return;
     const h = setTimeout(async () => {
       try {
-        const consulta = (extra: string) => {
+        // Sin texto: primero los más vendidos (últimos 90 días en la sucursal); si falta la 0050, por código
+        let top: { producto_id: string; ventas: number }[] = [];
+        if (!t) {
+          const mv = await supabase().rpc("productos_mas_vendidos", { p_sucursal: c.sucursalId || null, p_limite: 30 });
+          if (!mv.error) top = (mv.data ?? []) as { producto_id: string; ventas: number }[];
+        }
+        const ids = top.map((x) => x.producto_id);
+        const consulta = (extra: string, soloIds?: string[]) => {
           let q = supabase().from("productos")
             .select(`id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, imagen_url${extra}, unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))`)
             .eq("activo", true).order("sku").limit(30);
           if (t) q = q.or(`sku.ilike.%${t}%,nombre.ilike.%${t}%,codigo_barras.eq.${t}`);
+          if (soloIds) q = q.in("id", soloIds);
           return q;
         };
-        let { data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja, formato, nombre_libre, precio_libre");
-        if (error && /nombre_libre|precio_libre/.test(error.message)) ({ data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja, formato")); // falta 0044
-        if (error && /presentacion|m2_por_caja|piezas_por_caja|formato/.test(error.message)) ({ data, error } = await consulta("")); // falta la migración 0015
-        if (error) throw error;
-        setResultados(((data ?? []) as unknown as FilaProducto[]).map(({ unidades_venta, ...p }) => ({
+        const traer = async (soloIds?: string[]) => {
+          let { data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja, formato, nombre_libre, precio_libre", soloIds);
+          if (error && /nombre_libre|precio_libre/.test(error.message)) ({ data, error } = await consulta(", presentacion, m2_por_caja, piezas_por_caja, formato", soloIds)); // falta 0044
+          if (error && /presentacion|m2_por_caja|piezas_por_caja|formato/.test(error.message)) ({ data, error } = await consulta("", soloIds)); // falta la migración 0015
+          if (error) throw error;
+          return (data ?? []) as unknown[];
+        };
+        // Más vendidos primero y, si son menos de 30, se completa con el resto por código
+        const [a, b] = await Promise.all([ids.length ? traer(ids) : Promise.resolve([]), ids.length >= 30 ? Promise.resolve([]) : traer()]);
+        const vistos = new Set<string>();
+        const data = [...a, ...b].filter((x) => { const id = (x as { id: string }).id; if (vistos.has(id)) return false; vistos.add(id); return true; });
+
+        let filas = ((data ?? []) as unknown as FilaProducto[]).map(({ unidades_venta, ...p }) => ({
           ...p, unidades: [...unidades_venta].sort((a, b) => a.orden - b.orden).map((u) => ({ ...u, precio: precioDe(u) })),
-        })));
+        })) as ProductoVenta[];
+        const rango = new Map(top.map((x, i) => [x.producto_id, i]));
+        if (!t && rango.size) filas = [...filas].sort((a, b) => (rango.get(a.id) ?? 1e9) - (rango.get(b.id) ?? 1e9)).slice(0, 30);
+        setMasVendidos(t ? {} : Object.fromEntries(top.map((x) => [x.producto_id, Number(x.ventas)])));
+        setResultados(filas);
         setEnLinea(true);
       } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); }
     }, 200);
     return () => clearTimeout(h);
-  }, [texto, buscando, precioDe]);
+  }, [texto, buscando, precioDe, c.sucursalId]);
+
+  // Clic fuera del buscador: se cierra la lista
+  useEffect(() => {
+    if (!buscando) return;
+    const fuera = (e: MouseEvent | TouchEvent) => {
+      if (cajaBusqueda.current && !cajaBusqueda.current.contains(e.target as Node)) { setBuscando(false); setTexto(""); setResultados([]); }
+    };
+    document.addEventListener("mousedown", fuera);
+    document.addEventListener("touchstart", fuera);
+    return () => { document.removeEventListener("mousedown", fuera); document.removeEventListener("touchstart", fuera); };
+  }, [buscando]);
 
   const agregar = (p: ProductoVenta) => {
     // Unidad predeterminada: la primera unidad alterna (p. ej. CAJA); si no hay, la base
@@ -808,7 +841,7 @@ export default function CapturarVenta() {
         </div>
 
         {/* Agregar producto */}
-        <div className="relative mt-2">
+        <div className="relative mt-2" ref={cajaBusqueda}>
           {buscando ? (
             <>
               <input ref={busRef} autoFocus className="campo" placeholder="Código, nombre o código de barras…"
@@ -816,6 +849,9 @@ export default function CapturarVenta() {
                 onKeyDown={(e) => { if (e.key === "Enter" && resultados[0]) agregar(resultados[0]); }} />
               {resultados.length > 0 && (
                 <ul className="absolute z-10 w-full bg-[var(--panel)] border border-[var(--borde)] shadow max-h-72 overflow-auto">
+                  {!texto.trim() && Object.keys(masVendidos).length > 0 && (
+                    <li className="px-3 py-1 text-xs font-semibold text-[var(--tenue)] bg-[var(--resalte)] sticky top-0">Más vendidos (últimos 90 días)</li>
+                  )}
                   {resultados.map((p, i) => (
                     <li key={p.id} onClick={() => agregar(p)}
                       className="px-3 py-1.5 cursor-pointer text-sm hover:bg-[var(--resalte)] flex items-center gap-2"
@@ -823,7 +859,10 @@ export default function CapturarVenta() {
                       {p.imagen_url
                         ? <img src={p.imagen_url} alt="" loading="lazy" className="w-8 h-8 object-cover rounded bg-white shrink-0" />
                         : <span className="w-8 h-8 shrink-0" />}
-                      <span>{p.sku} - {nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}</span>
+                      <span className="flex-1">{p.sku} - {nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}</span>
+                      {!texto.trim() && masVendidos[p.id] > 0 && (
+                        <span className="text-xs opacity-75 whitespace-nowrap">{masVendidos[p.id]} venta{masVendidos[p.id] === 1 ? "" : "s"}</span>
+                      )}
                     </li>
                   ))}
                 </ul>
