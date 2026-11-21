@@ -9,6 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { aplicarTema } from "@/lib/temas";
 import { supabase } from "@/lib/supabase/client";
+import { LATIDO_MS, dejarSesion, latirSesion, salirLocal } from "@/lib/sesion";
 
 interface Item { texto: string; href: string }
 interface Grupo { texto: string; icono: string; href?: string; items?: Item[] }
@@ -89,7 +90,31 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => { setMenuMovil(false); }, [path]);
 
-  const salir = async () => { await supabase().auth.signOut(); router.replace("/login"); router.refresh(); };
+  // Un usuario, una sesión (0049): cada minuto avisa que este navegador sigue abierto.
+  // Si otro equipo tomó la sesión o un administrador la cerró, aquí se sale.
+  useEffect(() => {
+    let activo = true;
+    const latir = async () => {
+      try {
+        const r = await latirSesion();
+        if (!activo) return;
+        if (r.estado === "sin-migracion") { clearInterval(h); return; }
+        if (r.estado === "ocupada" || r.estado === "revocada") {
+          activo = false; clearInterval(h);
+          await salirLocal();
+          router.replace(`/login?motivo=${r.estado === "revocada" ? "admin" : "otro"}`);
+          router.refresh();
+        }
+      } catch { /* sin conexión: se reintenta en el siguiente latido */ }
+    };
+    const h = setInterval(latir, LATIDO_MS);
+    latir();
+    const alVolver = () => { if (document.visibilityState === "visible") latir(); };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => { activo = false; clearInterval(h); document.removeEventListener("visibilitychange", alVolver); };
+  }, [router]);
+
+  const salir = async () => { await dejarSesion(); await salirLocal(); router.replace("/login"); router.refresh(); };
   const ruta = rutaDe(path);
   const iniciales = usuario.split(/\s+/).map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 

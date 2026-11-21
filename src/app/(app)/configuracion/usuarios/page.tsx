@@ -29,12 +29,21 @@ export default function Usuarios() {
   const [msg, setMsg] = useState<{ tipo: "ok" | "error"; texto: string } | null>(null);
   const [trabajando, setTrabajando] = useState(false);
   const [temas, setTemas] = useState<Record<string, string | null> | null>(null);   // null = falta la migración 0036
+  const [enLinea, setEnLinea] = useState<Record<string, { equipo: string | null; ultima: string }> | null>(null); // null = falta la 0049
 
   const cargar = useCallback(async () => {
     try {
       const sb = supabase();
       sb.from("perfiles").select("user_id, tema").then(({ data, error }: { data: unknown; error: unknown }) =>
         setTemas(error ? null : Object.fromEntries(((data ?? []) as { user_id: string; tema: string | null }[]).map((x) => [x.user_id, x.tema]))));
+      sb.from("sesiones_activas").select("user_id, equipo, ultima_actividad").not("sesion_id", "is", null)
+        .then(({ data, error }: { data: unknown; error: unknown }) => {
+          if (error) { setEnLinea(null); return; }
+          const vivo = Date.now() - 3 * 60_000;
+          setEnLinea(Object.fromEntries(((data ?? []) as { user_id: string; equipo: string | null; ultima_actividad: string }[])
+            .filter((x) => new Date(x.ultima_actividad).getTime() > vivo)
+            .map((x) => [x.user_id, { equipo: x.equipo, ultima: x.ultima_actividad }])));
+        });
       const [u, s, a, sesion, prop] = await Promise.all([
         sb.from("perfiles").select("user_id, nombre, rol, activo, usuario, propietario, usuario_sucursales(sucursal_id)").order("nombre"),
         sb.from("sucursales").select("id, codigo, nombre, activa").order("codigo"),
@@ -80,6 +89,14 @@ export default function Usuarios() {
   const alternarActivo = (u: Usuario) =>
     ejecutar(() => llamar({ accion: "actualizar", user_id: u.user_id, activo: !u.activo }),
       u.activo ? `${u.nombre} desactivado: ya no puede iniciar sesión.` : `${u.nombre} activado.`);
+
+  const cerrarSesion = (u: Usuario) => {
+    if (!window.confirm(`¿Cerrar la sesión de ${u.nombre}? Si está trabajando, lo que no haya guardado se perderá.`)) return;
+    ejecutar(async () => {
+      const { error } = await supabase().rpc("cerrar_sesion_usuario", { p: { user_id: u.user_id } });
+      if (error) throw error;
+    }, `Sesión de ${u.nombre} cerrada. Ya puede entrar desde otro equipo.`);
+  };
 
   const guardarEdicion = async (u: Usuario) => {
     if (await ejecutar(() => llamar({ accion: "actualizar", user_id: u.user_id, ...edicion }), `Cambios de ${edicion.nombre} guardados.`))
@@ -175,7 +192,10 @@ export default function Usuarios() {
                   <td className="py-2">{u.nombre}{u.propietario && <span className="text-xs text-[var(--tenue)]"> (propietario)</span>}{esYo && <span className="text-xs text-[var(--tenue)]"> (tú)</span>}</td>
                   <td className="py-2">{ROLES[u.rol] ?? u.rol}</td>
                   <td className="py-2">{u.rol === "administrador" && !sus.length ? "Todas" : sus.map(nombreSuc).join(", ") || "—"}</td>
-                  <td className="py-2">{u.activo ? "Activo" : "Inactivo"}</td>
+                  <td className="py-2">{u.activo ? "Activo" : "Inactivo"}
+                    {enLinea?.[u.user_id] && <div className="text-xs text-emerald-700" title={`Última actividad: ${new Date(enLinea[u.user_id].ultima).toLocaleTimeString("es-MX")}`}>
+                      ● En línea{enLinea[u.user_id].equipo ? ` · ${enLinea[u.user_id].equipo}` : ""}</div>}
+                  </td>
                   <td className="py-1">
                     {temas && admin ? (
                       <select className="campo !py-1 !w-auto text-xs" value={temas[u.user_id] ?? ""} aria-label={`Color de interfaz de ${u.nombre}`}
@@ -197,6 +217,7 @@ export default function Usuarios() {
                     <button className="underline mr-3" onClick={() => { setEditando(u.user_id); setEdicion({ nombre: u.nombre, rol: u.rol, sucursales: sus }); }}>Editar</button>
                     <button className="underline mr-3" disabled={trabajando} onClick={() => cambiarContrasena(u)}>Contraseña</button>
                     {!esYo && !u.propietario && <button className="underline" disabled={trabajando} onClick={() => alternarActivo(u)}>{u.activo ? "Desactivar" : "Activar"}</button>}
+                    {!esYo && enLinea?.[u.user_id] && <button className="underline ml-3" disabled={trabajando} onClick={() => cerrarSesion(u)}>Cerrar sesión</button>}
                     </>}
                   </td>
                 </tr>

@@ -1,8 +1,15 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { correoDeUsuario } from "@/lib/usuarios";
+import { iniciarSesionUnica, mensajeOcupada, salirLocal } from "@/lib/sesion";
+
+/** Avisos al regresar al login porque la sesión se cerró desde otro lado */
+const MOTIVOS: Record<string, string> = {
+  otro: "Tu sesión se cerró porque este usuario entró desde otro equipo.",
+  admin: "Un administrador cerró tu sesión.",
+};
 
 export default function Login() {
   const router = useRouter();
@@ -11,12 +18,20 @@ export default function Login() {
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
 
+  useEffect(() => {
+    const m = new URLSearchParams(window.location.search).get("motivo");
+    if (m && MOTIVOS[m]) setError(MOTIVOS[m]);
+  }, []);
+
   const entrar = async (e: React.FormEvent) => {
     e.preventDefault();
     setCargando(true); setError(null);
     try {
       const { error } = await supabase().auth.signInWithPassword({ email: correoDeUsuario(correo), password: contrasena });
       if (error) throw error;
+      // Un usuario, una sesión: si ya está abierto en otro equipo, no se deja entrar
+      const s = await iniciarSesionUnica().catch(async (e) => { await salirLocal(); throw e; });
+      if (s.estado === "ocupada") { await salirLocal(); setError(mensajeOcupada(s)); return; }
       const volver = new URLSearchParams(window.location.search).get("volver");
       router.replace(volver && volver.startsWith("/") && !volver.startsWith("//") ? volver : "/pos");
       router.refresh();
