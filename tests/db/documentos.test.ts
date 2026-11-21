@@ -33,6 +33,16 @@ describe("Empresa y documentos", () => {
     await expect(rpc(s.cajeroA, "actualizar_sucursal", { id: s.sucA, telefono: "1" })).rejects.toThrow(/permiso/);
   });
 
+  it("actualizar_sucursal cambia el nombre y el CP; un nombre vacío no borra el anterior", async () => {
+    const [antes] = await q(`select nombre, cp_expedicion from sucursales where id=$1`, [s.sucB]);
+    await rpc(s.admin, "actualizar_sucursal", { id: s.sucB, nombre: "Sucursal Renombrada Ficticia", cp_expedicion: "76340" });
+    expect((await q(`select nombre, cp_expedicion from sucursales where id=$1`, [s.sucB]))[0]).toEqual({ nombre: "Sucursal Renombrada Ficticia", cp_expedicion: "76340" });
+    await rpc(s.admin, "actualizar_sucursal", { id: s.sucB, nombre: "  " });
+    expect((await q(`select nombre from sucursales where id=$1`, [s.sucB]))[0].nombre).toBe("Sucursal Renombrada Ficticia");
+    await expect(rpc(s.cajeroA, "actualizar_sucursal", { id: s.sucB, nombre: "Otra" })).rejects.toThrow(/permiso/);
+    await rpc(s.admin, "actualizar_sucursal", { id: s.sucB, nombre: antes.nombre, cp_expedicion: antes.cp_expedicion ?? "" });
+  });
+
   it("logotipos: hasta 6 imágenes PNG/JPEG; el logotipo anterior se migra a la lista", async () => {
     const png = "data:image/png;base64,AAAA";
     await asUser(s.admin, (c) => c.query(`update empresa set logos=$1::jsonb where id=1`, [JSON.stringify([png, png, png, png])]));

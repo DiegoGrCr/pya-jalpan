@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { USUARIO_VALIDO } from "@/lib/usuarios";
+import { BotonAccion } from "@/components/Iconos";
 
 interface Almacen { id: string; nombre: string; multisucursal: boolean; activo: boolean }
 interface Sucursal {
@@ -139,6 +140,23 @@ export default function Sucursales() {
     accionAlmacen(() => supabase().rpc("eliminar_almacen", { p_id: a.id }), "Almacén eliminado.");
   };
 
+  // Cambiar nombre y CP de expedición de la sucursal
+  const [editSuc, setEditSuc] = useState<{ id: string; nombre: string; cp: string } | null>(null);
+  const guardarNombre = async () => {
+    if (!editSuc) return;
+    const nombre = editSuc.nombre.trim(), cp = editSuc.cp.trim();
+    if (!nombre) { setMsg({ tipo: "error", texto: "El nombre de la sucursal no puede quedar vacío." }); return; }
+    if (cp && !/^\d{5}$/.test(cp)) { setMsg({ tipo: "error", texto: "El código postal debe tener 5 dígitos." }); return; }
+    setGuardando(true);
+    try {
+      const { error } = await supabase().rpc("actualizar_sucursal", { p: { id: editSuc.id, nombre, cp_expedicion: cp || null } });
+      if (error) throw error;
+      setEditSuc(null);
+      setMsg({ tipo: "ok", texto: `Sucursal guardada: ${nombre}.` });
+      await cargar();
+    } catch (err) { setMsg({ tipo: "error", texto: mensajeError(err) }); } finally { setGuardando(false); }
+  };
+
   const alternarActiva = async (s: Sucursal) => {
     try {
       const { error } = await supabase().rpc("actualizar_sucursal", { p: { id: s.id, activa: !s.activa } });
@@ -188,8 +206,32 @@ export default function Sucursales() {
             {lista.map((s) => (
               <tr key={s.id} className="border-t align-top">
                 <td className="p-2 font-mono">{s.codigo}</td>
-                <td className="py-2">{s.nombre}</td>
+                {editSuc?.id === s.id ? (
+                  <td className="py-2 pr-3" colSpan={2}>
+                    <div className="flex flex-col gap-1 max-w-[280px]">
+                      <label className="text-xs">Nombre
+                        <input className="border rounded px-2 py-1 w-full" autoFocus value={editSuc.nombre}
+                          onChange={(e) => setEditSuc({ ...editSuc, nombre: e.target.value })}
+                          onKeyDown={(e) => { if (e.key === "Enter") guardarNombre(); if (e.key === "Escape") setEditSuc(null); }} />
+                      </label>
+                      <label className="text-xs">CP expedición
+                        <input className="border rounded px-2 py-1 w-full" inputMode="numeric" maxLength={5} value={editSuc.cp}
+                          onChange={(e) => setEditSuc({ ...editSuc, cp: e.target.value.replace(/\D/g, "") })} />
+                      </label>
+                      <div className="flex gap-3 text-xs">
+                        <button disabled={guardando} onClick={guardarNombre} className="underline font-semibold">Guardar</button>
+                        <button onClick={() => setEditSuc(null)} className="underline">Cancelar</button>
+                      </div>
+                    </div>
+                  </td>
+                ) : (<>
+                <td className="py-2 pr-3">
+                  <span className="inline-flex items-center gap-2">{s.nombre}
+                    {admin && <BotonAccion tipo="editar" titulo={`Cambiar nombre de ${s.nombre}`} onClick={() => setEditSuc({ id: s.id, nombre: s.nombre, cp: s.cp_expedicion ?? "" })} />}
+                  </span>
+                </td>
                 <td className="py-2">{s.cp_expedicion ?? "—"}</td>
+                </>)}
                 <td className="py-2">
                   {(["venta", "cotizacion"] as const).map((tipo) => {
                     const sv = serieDe(s, tipo);
