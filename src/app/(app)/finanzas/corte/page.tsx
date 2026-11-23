@@ -124,7 +124,7 @@ export default function CorteCaja() {
   const [contado, setContado] = useState("");
   const [notas, setNotas] = useState("");
   const [retiro, setRetiro] = useState<{ clave: string; tipo: "retiro" | "gasto"; importe: string; concepto: string;
-    categoria: string; forma: string; proveedor: string; fecha: string } | null>(null);
+    categoria: string; forma: string; proveedor: string; fecha: string; conFactura?: boolean; folio?: string } | null>(null);
   const nuevoMov = (tipo: "retiro" | "gasto") => setRetiro({ clave: crypto.randomUUID(), tipo, importe: "", concepto: "", categoria: "", forma: "efectivo", proveedor: "",
     fecha: new Date().toLocaleDateString("en-CA", { timeZone: "America/Mexico_City" }) });
   const [abierto, setAbierto] = useState<string | null>(null);
@@ -182,6 +182,7 @@ export default function CorteCaja() {
       const base = { idempotency_key: retiro.clave, sucursal_id: sucursal, importe: retiro.importe, concepto: retiro.concepto };
       const p = retiro.tipo === "retiro" ? base : {
         ...base, tipo: "gasto", categoria: retiro.categoria, forma: retiro.forma, proveedor: retiro.proveedor || null,
+        ...(retiro.conFactura ? { con_factura: true, factura_folio: retiro.folio?.trim() || null } : {}),
         // fecha anterior: a mediodía de ese día; hoy: la hora actual
         fecha: retiro.fecha && retiro.fecha !== hoyMx ? `${retiro.fecha}T12:00:00-06:00` : null,
       };
@@ -410,6 +411,10 @@ export default function CorteCaja() {
                 </label>
                 <label>Fecha<input type="date" className="campo" value={retiro.fecha} min={r?.ultimo_corte ? diaMx(r.ultimo_corte) : undefined} max={diaMx(new Date())} onChange={(e) => setRetiro({ ...retiro, fecha: e.target.value })} /></label>
                 <label className="sm:col-span-2">Proveedor / a quién se pagó (opcional)<input className="campo" value={retiro.proveedor} onChange={(e) => setRetiro({ ...retiro, proveedor: e.target.value })} /></label>
+                <label className="sm:col-span-2 flex items-center gap-2"><input type="checkbox" checked={!!retiro.conFactura} onChange={(e) => setRetiro({ ...retiro, conFactura: e.target.checked })} />
+                  Trae factura (para la contadora: gasto deducible)</label>
+                {retiro.conFactura && <label className="sm:col-span-2">Folio fiscal (UUID) de la factura (opcional)
+                  <input className="campo uppercase" placeholder="p. ej. 1A2B3C4D-…" value={retiro.folio ?? ""} onChange={(e) => setRetiro({ ...retiro, folio: e.target.value })} /></label>}
               </>)}
             </div>
             <div className="flex justify-end gap-3 mt-4">

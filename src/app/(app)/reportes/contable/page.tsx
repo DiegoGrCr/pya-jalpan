@@ -18,7 +18,7 @@ interface Suc {
     contado: number; credito: number; con_iva: number; publico_general: number; clientes_registrados: number };
   ventas_netas: number; costo: number | null; utilidad: number | null;
   cobranza: Mapa; devoluciones: { dinero: Mapa; saldo_favor: number; productos: number };
-  gastos: { total: number; categorias: { categoria: string; importe: number }[]; por_forma: Mapa };
+  gastos: { total: number; con_factura?: number; categorias: { categoria: string; importe: number }[]; por_forma: Mapa };
   retiros: number; cortes: { num: number; total: number; diferencia: number; con_diferencia: number };
   por_cobrar: { saldo: number; vencido: number; notas: number }; apartados: { num: number; total: number; saldo: number }; inventario: number | null;
 }
@@ -100,6 +100,8 @@ export default function ResumenContable() {
       { seccion: "Gastos y retiros" },
       ...categorias.map((c) => ({ texto: c, v: cat(c), nivel: 1 as const })),
       { texto: "Total de gastos", v: (s) => N(s.gastos.total), fuerte: true },
+      { texto: "Gastos con factura (deducibles)", v: (s) => N(s.gastos.con_factura), nivel: 1 },
+      { texto: "Gastos sin factura", v: (s) => N(s.gastos.total) - N(s.gastos.con_factura), nivel: 1 },
       { texto: "Gastos pagados en efectivo", v: (s) => N(s.gastos.por_forma?.efectivo), nivel: 1 },
       { texto: "Retiros de caja", v: (s) => N(s.retiros) },
 

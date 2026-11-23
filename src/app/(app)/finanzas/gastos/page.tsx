@@ -14,6 +14,7 @@ import { EsqueletoFilas } from "@/components/Esqueleto";
 interface Fila {
   id: string; fecha: string; importe: string; concepto: string; categoria: string | null; forma: string; proveedor: string | null;
   usuario_id: string | null; cancelado: boolean; corte_id: string | null; sucursales: { codigo: string; nombre: string } | null;
+  con_factura?: boolean; factura_folio?: string | null;
 }
 const tz = { timeZone: "America/Mexico_City" } as const;
 const hoy = () => new Date().toLocaleDateString("en-CA", tz);
@@ -28,6 +29,7 @@ export default function Gastos() {
   const [categoria, setCategoria] = useState("");
   const [forma, setForma] = useState("");
   const [texto, setTexto] = useState("");
+  const [factura, setFactura] = useState<"" | "si" | "no">("");
   const [filas, setFilas] = useState<Fila[]>([]);
   const [nombres, setNombres] = useState<Record<string, string>>({});
   const [cargando, setCargando] = useState(true);
@@ -43,15 +45,20 @@ export default function Gastos() {
   const cargar = useCallback(async () => {
     setCargando(true); setMsg(null);
     try {
-      let q = supabase().from("retiros_caja")
-        .select("id, fecha, importe, concepto, categoria, forma, proveedor, usuario_id, cancelado, corte_id, sucursales(codigo, nombre)")
+      const sel = (extra: string) => {
+        let q = supabase().from("retiros_caja")
+        .select(`id, fecha, importe, concepto, categoria, forma, proveedor, usuario_id, cancelado, corte_id, sucursales(codigo, nombre)${extra}`)
         .eq("tipo", "gasto").eq("cancelado", false).order("fecha", { ascending: false }).limit(1000);
       if (sucursal) q = q.eq("sucursal_id", sucursal);
       if (desde) q = q.gte("fecha", `${desde}T00:00:00-06:00`);
       if (hasta) q = q.lte("fecha", `${hasta}T23:59:59.999-06:00`);
       if (categoria) q = q.eq("categoria", categoria);
       if (forma) q = q.eq("forma", forma);
-      const { data, error } = await q;
+        if (factura && extra) q = q.eq("con_factura", factura === "si");
+        return q;
+      };
+      let { data, error } = await sel(", con_factura, factura_folio");
+      if (error && /con_factura|factura_folio/.test(error.message)) ({ data, error } = await sel(""));   // falta la 0058
       if (error) {
         if (/tipo|categoria|forma|proveedor/.test(error.message)) throw new Error("Falta ejecutar la migración 20261119000040_gastos.sql en Supabase.");
         if (/retiros_caja/.test(error.message)) throw new Error("Falta ejecutar la migración 20261119000039_corte_caja.sql en Supabase.");
@@ -64,7 +71,7 @@ export default function Gastos() {
       const ids = f.map((x) => x.usuario_id ?? "").filter(Boolean);
       if (ids.length) setNombres(await nombresUsuarios(ids));
     } catch (e) { setMsg(mensajeError(e)); } finally { setCargando(false); }
-  }, [sucursal, desde, hasta, categoria, forma, texto]);
+  }, [sucursal, desde, hasta, categoria, forma, texto, factura]);
   useEffect(() => { const h = setTimeout(cargar, 250); return () => clearTimeout(h); }, [cargar]);
 
   const total = useMemo(() => filas.reduce((s, x) => s + Number(x.importe), 0), [filas]);
@@ -84,7 +91,7 @@ export default function Gastos() {
       </div>
       {msg && <div role="alert" className="rounded px-4 py-2 bg-amber-100 text-amber-900">{msg}</div>}
 
-      <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] p-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr] items-end text-sm">
+      <section className="bg-[var(--panel)] rounded-md border border-[var(--borde)] p-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_1fr] items-end text-sm">
         <label>Buscar<input className="campo" placeholder="Concepto o proveedor" value={texto} onChange={(e) => setTexto(e.target.value)} /></label>
         <label>Sucursal
           <select className="campo" value={sucursal} onChange={(e) => setSucursal(e.target.value)}>
@@ -96,6 +103,11 @@ export default function Gastos() {
         <label>Categoría
           <select className="campo" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
             <option value="">Todas</option>{CATEGORIAS_GASTO.map((c) => <option key={c}>{c}</option>)}
+          </select>
+        </label>
+        <label>Factura
+          <select className="campo" value={factura} onChange={(e) => setFactura(e.target.value as typeof factura)}>
+            <option value="">Todos</option><option value="si">Con factura</option><option value="no">Sin factura</option>
           </select>
         </label>
         <label>Forma de pago
@@ -122,7 +134,8 @@ export default function Gastos() {
                   <td className="p-2 whitespace-nowrap">{fechaMx(x.fecha)}</td>
                   <td className="pr-3 py-2 whitespace-nowrap">{x.sucursales?.codigo ?? ""}</td>
                   <td className="pr-3 py-2 whitespace-nowrap">{x.categoria ?? "—"}</td>
-                  <td className="pr-3 py-2">{x.concepto}{x.proveedor && <div className="text-xs text-[var(--tenue)]">{x.proveedor}</div>}</td>
+                  <td className="pr-3 py-2">{x.concepto}{x.proveedor && <div className="text-xs text-[var(--tenue)]">{x.proveedor}</div>}
+                    {x.con_factura && <div className="text-xs text-emerald-700" title={x.factura_folio ?? undefined}>✓ Con factura{x.factura_folio ? ` · ${x.factura_folio.slice(0, 8)}…` : ""}</div>}</td>
                   <td className="pr-3 py-2 whitespace-nowrap">{FORMAS_PAGO[x.forma] ?? x.forma}</td>
                   <td className="pr-3 py-2 text-right whitespace-nowrap">{$(x.importe)}</td>
                   <td className="pr-2 py-2">{x.usuario_id ? nombres[x.usuario_id] ?? "" : ""}
@@ -139,6 +152,12 @@ export default function Gastos() {
             <div className="text-[var(--tenue)]">Total de gastos</div>
             <div className="text-2xl font-semibold">{$(total)}</div>
             <div className="text-xs text-[var(--tenue)]">{filas.length} gasto{filas.length === 1 ? "" : "s"}</div>
+            {filas.some((x) => x.con_factura !== undefined) && (
+              <div className="mt-2 grid grid-cols-2 gap-1 text-xs">
+                <span>Con factura</span><span className="text-right text-emerald-700">{$(filas.filter((x) => x.con_factura).reduce((a, x) => a + Number(x.importe), 0))}</span>
+                <span>Sin factura</span><span className="text-right">{$(filas.filter((x) => !x.con_factura).reduce((a, x) => a + Number(x.importe), 0))}</span>
+              </div>
+            )}
           </div>
           <div>
             <h2 className="font-medium mb-2">Por categoría</h2>

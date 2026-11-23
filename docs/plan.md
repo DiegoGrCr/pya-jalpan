@@ -77,7 +77,7 @@ costo_pendiente → ajustes_costo_venta          bitacora          sat_catalogo
 | 2. Plan y modelo de datos | ✅ este documento |
 | 3. Autenticación, sucursales y permisos | ✅ Usuarios, roles, sesión única por usuario, rol Contabilidad (solo consulta, 0053) |
 | 4. Productos, unidades y clientes | ✅ Catálogo, fotos, importación Excel, conceptos genéricos, crédito del cliente |
-| 5. Inventarios y kardex | 🟡 Existencias, kardex y recepción de mercancía listos; pantallas de traspasos, ajustes y conteo físico pendientes |
+| 5. Inventarios y kardex | ✅ Existencias, recepción, traspasos, ajustes, conteo físico (0057) y reporte de inventario valorizado / kardex |
 | 6. Cotizaciones, POS y caja | ✅ Cotizaciones, captura, POS, corte de caja y gastos |
 | 7. Crédito, apartados y entregas | ✅ Crédito, abonos, apartados (0052), devoluciones (0051) y entregas |
 | 8–12 | ⏳ Ver «Pendientes para el final» |
@@ -95,8 +95,7 @@ Se dejan al final, después de terminar la operación diaria:
   4. Más adelante: portal de autofacturación con el folio de la nota.
 - Mientras tanto se puede seguir usando Blackinvoice; cada venta se factura en un solo lado.
 
-**Herramientas para la contadora** (rol Contabilidad ya creado)
-- Resumen contable mensual por sucursal (ventas con subtotal/IVA/total, por forma de pago, devoluciones, gastos por categoría, cortes), en pantalla y Excel.
+**Herramientas para la contadora** — ✅ hechas (23-nov-2026): rol Contabilidad, Resumen contable, Cuentas por cobrar con antigüedad, Pagos de clientes, Estado de cuenta, reportes de Cobranza e Inventarios, gastos con/sin factura. Quedan para cuando haya timbrado:
 - Ventas facturadas contra no facturadas (qué va a la global y qué falta).
 - Descarga en .zip de los XML y PDF del mes.
 
