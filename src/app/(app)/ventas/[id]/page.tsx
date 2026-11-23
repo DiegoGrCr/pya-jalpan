@@ -413,7 +413,7 @@ export default function DetalleVenta() {
                     {devProd.map((d) => (
                       <li key={d.id}>
                         <span className="text-[var(--tenue)]">{fechaMx(d.fecha)}</span> · {d.partidas.map((x) => `${fmtCantidad(x.cantidad)} ${x.unidad} ${x.producto}`).join(", ")}
-                        {" "}· <b>{mxn(d.importe)}</b> {d.destino === "saldo_favor" ? "a favor del cliente" : `devueltos (${FORMAS_PAGO[d.forma ?? ""] ?? d.forma})`} · {d.motivo}
+                        {" "}· <b>{mxn(d.importe)}</b> {d.destino === "saldo_nota" ? "descontados del saldo de la nota" : d.destino === "saldo_favor" ? "a favor del cliente" : `devueltos (${FORMAS_PAGO[d.forma ?? ""] ?? d.forma})`} · {d.motivo}
                       </li>
                     ))}
                   </ul>
@@ -545,8 +545,13 @@ export default function DetalleVenta() {
               const c = r ? cantDevuelta(r, devolucion.cantidades) : 0;
               return s + (c > 0 ? Math.round(Number(p.total) * c / Number(p.cantidad) * 100) / 100 : 0);
             }, 0);
+            const debe = Number(v.saldo) || 0;
+            const desc = Math.min(debe, total);
             return <div className="text-right mt-2">Importe a devolver: <b>{mxn(total)}</b>
-              <div className="text-xs text-[var(--tenue)]">Al precio que pagó en esta nota (con sus descuentos), no al precio de lista.</div></div>;
+              <div className="text-xs text-[var(--tenue)]">Al precio que pagó en esta nota (con sus descuentos), no al precio de lista.</div>
+              {debe > 0 && total > 0 && <div className="mt-1 rounded px-2 py-1 bg-sky-50 text-sky-900 text-left text-xs">
+                La nota todavía debe {mxn(debe)}: primero se descuentan <b>{mxn(desc)}</b> de ese saldo.
+                {total > debe ? <> Lo que sobra, <b>{mxn(total - debe)}</b>, se devuelve o queda a favor como elijas abajo.</> : " No se le devuelve dinero."}</div>}</div>;
           })()}
           <label className="block mt-3">Motivo
             <select className="campo" value={devolucion.motivo} onChange={(e) => setDevolucion({ ...devolucion, motivo: e.target.value })}>
@@ -616,7 +621,8 @@ export default function DetalleVenta() {
               const pa = v.partidas.find((x) => x.renglon === rg.renglon); const c = cantDevuelta(rg, devolucion.cantidades);
               return a + (pa && c > 0 ? Math.round(Number(pa.total) * c / Number(pa.cantidad) * 100) / 100 : 0);
             }, 0);
-            if (total <= Math.max(otro, 0) + 0.005) return null;
+            const resto = Math.max(total - (Number(v.saldo) || 0), 0);   // lo que no se descuenta del saldo de la nota
+            if (resto <= Math.max(otro, 0) + 0.005) return null;
             return (
               <div role="alert" className="mt-3 rounded px-3 py-2 text-sm bg-amber-100 text-amber-900">
                 Esta venta se pagó con tarjeta{otro > 0 ? ` (en efectivo o transferencia solo pagó ${mxn(otro)})` : ""}: no se devuelve en {devolucion.forma === "efectivo" ? "efectivo" : "transferencia"}.
@@ -630,7 +636,7 @@ export default function DetalleVenta() {
           <div className="flex justify-end gap-3 mt-4">
             <button className="px-4 py-2 rounded border border-[var(--borde)]" onClick={() => setDevolucion(null)}>Cerrar</button>
             <button className="btn-primario" disabled={trabajando || !devolucion.motivo || !renglones.some((rg) => cantDevuelta(rg, devolucion.cantidades) > 0)
-              || (devolucion.destino === "saldo_favor" && v.cliente.es_publico_general && !devolucion.cliente)}
+              || (devolucion.destino === "saldo_favor" && v.cliente.es_publico_general && !devolucion.cliente && !(Number(v.saldo) > 0))}
               onClick={guardarDevolucion}>{trabajando ? "Guardando…" : "Registrar devolución"}</button>
           </div>
         </Ventana>

@@ -73,3 +73,21 @@ describe("cajas + piezas", () => {
     expect(total).toBeCloseTo(600, 0);
   });
 });
+
+describe("nota que todavía debe (0056)", () => {
+  it("la devolución primero baja el saldo de la nota; solo el resto se devuelve", async () => {
+    const v = await rpc(s.cajeroA, "confirmar_venta", { idempotency_key: key(), sucursal_id: s.sucA, almacen_id: s.almA, tipo: "credito", cliente_id: s.clienteCredito,
+      partidas: cajas(3), pagos: [] });                                                    // debe 1080
+    const pid = await partida(v.venta_id);
+    const r1 = await devolver(s.cajeroA, v.venta_id, pid, 1, { destino: "dinero", forma: "efectivo" });
+    expect({ aplicado: Number(r1.aplicado_saldo), devuelto: Number(r1.devuelto) }).toEqual({ aplicado: 360, devuelto: 0 });
+    expect(Number((await q(`select saldo from ventas where id = $1`, [v.venta_id]))[0].saldo)).toBe(720);
+    expect((await q(`select count(*)::int n from venta_devoluciones where venta_id = $1`, [v.venta_id]))[0].n).toBe(0);
+    // paga 500 (debe 220) y devuelve otra caja: 220 bajan el saldo y 140 se le devuelven
+    await rpc(s.cajeroA, "registrar_pago_venta", { idempotency_key: key(), venta_id: v.venta_id, forma: "efectivo", importe: 500 });
+    const r2 = await devolver(s.cajeroA, v.venta_id, pid, 1, { destino: "dinero", forma: "efectivo" });
+    expect({ aplicado: Number(r2.aplicado_saldo), devuelto: Number(r2.devuelto) }).toEqual({ aplicado: 220, devuelto: 140 });
+    expect(Number((await q(`select saldo from ventas where id = $1`, [v.venta_id]))[0].saldo)).toBe(0);
+    expect(Number((await q(`select sum(importe) s from venta_devoluciones where venta_id = $1`, [v.venta_id]))[0].s)).toBe(140);
+  });
+});

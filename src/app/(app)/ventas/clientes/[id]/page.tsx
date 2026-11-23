@@ -129,6 +129,7 @@ export default function FichaCliente() {
             <button onClick={() => setPestana("datos")} className="inline-flex items-center gap-1.5 px-3 py-2 rounded border border-[var(--acento)] text-[var(--acento)] hover:bg-[var(--resalte)]">
               <IconoEditar /> Editar cliente</button>
           )}
+          {!c.es_publico_general && <Link href={`/creditos/estado-de-cuenta?cliente=${c.id}`} className="px-3 py-2 rounded border border-[var(--borde)]">Estado de cuenta</Link>}
           <Link href="/ventas/capturar" className="btn-primario">Nueva venta</Link>
           <Link href="/ventas/clientes" className="underline">← Clientes</Link>
         </div>
