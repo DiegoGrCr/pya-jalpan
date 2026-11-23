@@ -48,6 +48,7 @@ export const MENU: Grupo[] = [
   ] },
   { texto: "Reportes", icono: "▥", items: [
     { texto: "Ventas", href: "/reportes/ventas" },
+    { texto: "Resumen contable", href: "/reportes/contable" },
     { texto: "Inventarios", href: "/reportes/inventarios" },
     { texto: "Cobranza", href: "/reportes/cobranza" },
   ] },
