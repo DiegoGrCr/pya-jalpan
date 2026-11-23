@@ -35,8 +35,14 @@ export default function DetalleVenta() {
   // Devolución de productos (0038)
   type DevProd = { id: string; fecha: string; destino: string; forma: string | null; importe: string; motivo: string; partidas: { producto: string; unidad: string; cantidad: number; importe: number }[] };
   const [devProd, setDevProd] = useState<DevProd[] | null>(null);
-  const [renglones, setRenglones] = useState<{ id: string; renglon: number; cantidad_entregada: number; cantidad_devuelta: number }[]>([]);
-  const [devolucion, setDevolucion] = useState<{ clave: string; cantidades: Record<string, string>; motivo: string; detalle: string; destino: "saldo_favor" | "dinero"; forma: string } | null>(null);
+  // factor de la unidad vendida y, si el producto tiene CAJA y PIEZA, sus factores (para devolver cajas + piezas)
+  type Renglon = { id: string; renglon: number; cantidad_entregada: number; cantidad_devuelta: number; factor: number; fCaja: number | null; fPieza: number | null };
+  const [renglones, setRenglones] = useState<Renglon[]>([]);
+  const [devolucion, setDevolucion] = useState<{ clave: string; cantidades: Record<string, string>; motivo: string; detalle: string; destino: "saldo_favor" | "dinero"; forma: string;
+    cliente: { id: string; nombre: string } | null } | null>(null);
+  // Reglas de devolución (0051): permiso para devolver en efectivo lo pagado con tarjeta
+  const [reglasDev, setReglasDev] = useState<{ activas: boolean; puedeEfectivo: boolean }>({ activas: false, puedeEfectivo: false });
+  const [buscaCli, setBuscaCli] = useState<{ texto: string; lista: { id: string; nombre: string; telefono: string | null }[]; nuevo: { nombre: string; telefono: string } | null }>({ texto: "", lista: [], nuevo: null });
   const [cancelacion, setCancelacion] = useState<{ motivo: string; detalle: string } | null>(null);
   const [pago, setPago] = useState<{ clave: string; forma: string; importe: string; referencia: string; comentarios: string } | null>(null);
 
@@ -56,11 +62,21 @@ export default function DetalleVenta() {
         sb.from("ventas").select("cerrada, ediciones, con_abono").eq("id", id).maybeSingle(),
         sb.from("venta_devoluciones").select("fecha, forma, importe").eq("venta_id", id).order("fecha"),
         sb.from("devoluciones_producto").select("id, fecha, destino, forma, importe, motivo, partidas").eq("venta_id", id).order("fecha"),
-        sb.from("venta_partidas").select("id, renglon, cantidad_entregada, cantidad_devuelta").eq("venta_id", id),
+        sb.from("venta_partidas").select("id, renglon, cantidad_entregada, cantidad_devuelta, factor, productos(unidades_venta(nombre, factor))").eq("venta_id", id),
       ]);
+      sb.from("devoluciones_producto").select("cliente_id").limit(1).then(async ({ error }: { error: unknown }) => {
+        if (error) { setReglasDev({ activas: false, puedeEfectivo: true }); return; }
+        const { data } = await sb.rpc("tiene_permiso", { p_permiso: "devolver_efectivo" });
+        setReglasDev({ activas: true, puedeEfectivo: data === true });
+      });
       setDevProd(dp.error ? null : (dp.data ?? []) as DevProd[]);
-      setRenglones(rg.error ? [] : ((rg.data ?? []) as { id: string; renglon: number; cantidad_entregada: string; cantidad_devuelta: string }[])
-        .map((x) => ({ id: x.id, renglon: x.renglon, cantidad_entregada: Number(x.cantidad_entregada), cantidad_devuelta: Number(x.cantidad_devuelta) })));
+      type FilaRg = { id: string; renglon: number; cantidad_entregada: string; cantidad_devuelta: string; factor: string; productos: { unidades_venta: { nombre: string; factor: string }[] } | null };
+      setRenglones(rg.error ? [] : ((rg.data ?? []) as unknown as FilaRg[]).map((x) => {
+        const u = x.productos?.unidades_venta ?? [];
+        const f = (re: RegExp) => { const y = u.find((z) => re.test(z.nombre.trim())); return y ? Number(y.factor) : null; };
+        return { id: x.id, renglon: x.renglon, cantidad_entregada: Number(x.cantidad_entregada), cantidad_devuelta: Number(x.cantidad_devuelta),
+          factor: Number(x.factor), fCaja: f(/^CAJAS?$/i), fPieza: f(/^(PIEZAS?|PZAS?|PZ)$/i) };
+      }));
       const d = ex.data as { cerrada: boolean; ediciones: number; con_abono: boolean } | null;
       setCierre(ex.error || !d ? { cerrada: false, ediciones: 0, disponible: false } : { cerrada: d.cerrada, ediciones: d.ediciones, conAbono: d.con_abono, disponible: true });
       setDevoluciones(dv.error ? [] : (dv.data ?? []) as { fecha: string; forma: string; importe: string }[]);
@@ -74,17 +90,38 @@ export default function DetalleVenta() {
     if (!devolucion.motivo || (devolucion.motivo === "Otro" && !devolucion.detalle.trim())) { setMsg({ tipo: "error", texto: "Indica el motivo de la devolución." }); return; }
     setTrabajando(true);
     try {
-      const partidas = Object.entries(devolucion.cantidades).filter(([, c]) => Number(c) > 0).map(([partida_id, cantidad]) => ({ partida_id, cantidad }));
+      const partidas = renglones.map((rg) => ({ partida_id: rg.id, cantidad: cantDevuelta(rg, devolucion.cantidades) })).filter((x) => x.cantidad > 0);
+      if (devolucion.destino === "saldo_favor" && v.cliente.es_publico_general && !devolucion.cliente) throw new Error("Elige o da de alta al cliente que recibe el saldo a favor.");
       const { data, error } = await supabase().rpc("devolver_productos", { p: { idempotency_key: devolucion.clave, venta_id: v.id, motivo,
-        destino: devolucion.destino, forma: devolucion.destino === "dinero" ? devolucion.forma : null, partidas } });
+        destino: devolucion.destino, forma: devolucion.destino === "dinero" ? devolucion.forma : null, partidas,
+        cliente_id: devolucion.destino === "saldo_favor" && v.cliente.es_publico_general ? devolucion.cliente?.id ?? null : null } });
       if (error) {
         if (/devolver_productos/.test(error.message)) throw new Error("Falta ejecutar la migración 20261118000038_cartera_devoluciones.sql en Supabase.");
         throw error;
       }
       setDevolucion(null);
-      setMsg({ tipo: "ok", texto: `Devolución registrada por ${mxn(data.importe)}${devolucion.destino === "saldo_favor" ? " a favor del cliente" : ""}.` });
+      setMsg({ tipo: "ok", texto: `Devolución registrada por ${mxn(data.importe)}${devolucion.destino === "saldo_favor" ? ` a favor de ${devolucion.cliente?.nombre ?? "el cliente"}` : ""}.` });
       await recargar();
     } catch (e) { setMsg({ tipo: "error", texto: mensajeError(e) }); } finally { setTrabajando(false); }
+  };
+
+  // Buscar o dar de alta al cliente que recibe el saldo a favor (ventas de Público en general)
+  const buscarCliente = async (texto: string) => {
+    setBuscaCli((b) => ({ ...b, texto }));
+    const t = texto.trim().replace(/[%,()]/g, "");
+    if (t.length < 2) { setBuscaCli((b) => ({ ...b, lista: [] })); return; }
+    const { data } = await supabase().from("clientes").select("id, nombre, telefono").eq("activo", true).eq("es_publico_general", false)
+      .or(`nombre.ilike.%${t}%,telefono.ilike.%${t}%,rfc.ilike.%${t}%`).order("nombre").limit(8);
+    setBuscaCli((b) => ({ ...b, lista: (data ?? []) as { id: string; nombre: string; telefono: string | null }[] }));
+  };
+  const altaCliente = async () => {
+    if (!devolucion || !buscaCli.nuevo) return;
+    const nombre = buscaCli.nuevo.nombre.trim();
+    if (!nombre) { setMsg({ tipo: "error", texto: "Escribe el nombre del cliente." }); return; }
+    const { data, error } = await supabase().from("clientes").insert({ nombre, telefono: buscaCli.nuevo.telefono.trim() || null }).select("id, nombre").single();
+    if (error) { setMsg({ tipo: "error", texto: mensajeError(error) }); return; }
+    setDevolucion({ ...devolucion, cliente: data as { id: string; nombre: string } });
+    setBuscaCli({ texto: "", lista: [], nuevo: null });
   };
 
   const cargarHistorial = async () => {
@@ -265,7 +302,7 @@ export default function DetalleVenta() {
         nota: cierre.disponible ? undefined : "Falta ejecutar la migración 20261118000027_ventas_editables.sql" },
       { texto: "Cerrar venta", fn: cerrarVenta, deshabilitado: !cierre.disponible },
     ] : []),
-    ...(!cancelada && devProd !== null ? [{ texto: "Devolver productos", fn: () => setDevolucion({ clave: crypto.randomUUID(), cantidades: {}, motivo: "", detalle: "",
+    ...(!cancelada && devProd !== null ? [{ texto: "Devolver productos", fn: () => setDevolucion({ clave: crypto.randomUUID(), cantidades: {}, motivo: "", detalle: "", cliente: null,
         destino: v.cliente.es_publico_general ? "dinero" as const : "saldo_favor" as const, forma: "efectivo" }),
       deshabilitado: !renglones.some((r) => r.cantidad_entregada - r.cantidad_devuelta > 0), nota: "Solo se devuelve material ya entregado" }] : []),
     { texto: "Registrar pago", fn: () => setPago({ clave: crypto.randomUUID(), forma: "efectivo", importe: Number(v.saldo).toFixed(2), referencia: "", comentarios: "" }),
@@ -474,18 +511,29 @@ export default function DetalleVenta() {
           <p className="text-xs text-[var(--tenue)] mb-2">El material regresa al inventario de la bodega de donde salió. Solo se puede devolver lo ya entregado.</p>
           <table className="w-full text-sm">
             <thead style={{ color: "var(--acento)" }}><tr className="text-left border-b border-[var(--borde)]">
-              <th className="font-normal py-1">Producto</th><th className="font-normal text-right">Puede devolver</th><th className="font-normal text-right w-28">Devuelve</th></tr></thead>
+              <th className="font-normal py-1">Producto</th><th className="font-normal text-right pr-2">Puede devolver</th><th className="font-normal">Devuelve</th></tr></thead>
             <tbody>
               {v.partidas.map((p) => {
                 const r = renglones.find((x) => x.renglon === p.renglon);
                 const max = r ? r.cantidad_entregada - r.cantidad_devuelta : 0;
                 if (!r || max <= 0) return null;
+                const cp = conCajasPiezas(r);
+                const set = (k: string, val: string) => setDevolucion({ ...devolucion, cantidades: { ...devolucion.cantidades, [k]: val.replace(/[^\d.]/g, "") } });
+                const pedido = cantDevuelta(r, devolucion.cantidades);
                 return (
-                  <tr key={r.id} className="border-b border-[var(--borde)]">
-                    <td className="py-1.5 pr-2">{nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}</td>
-                    <td className="text-right pr-2 whitespace-nowrap">{fmtCantidad(max)} {p.unidad}</td>
-                    <td className="py-1"><input className="campo !py-1 text-right" inputMode="decimal" placeholder="0" value={devolucion.cantidades[r.id] ?? ""}
-                      onChange={(e) => setDevolucion({ ...devolucion, cantidades: { ...devolucion.cantidades, [r.id]: e.target.value } })} /></td>
+                  <tr key={r.id} className="border-b border-[var(--borde)] align-top">
+                    <td className="py-1.5 pr-2">{nombreConCaja(p.nombre, p.m2_por_caja, p.formato)}
+                      {cp && pedido > 0 && <div className="text-xs text-[var(--tenue)]">= {fmtCantidad(pedido)} {p.unidad}</div>}
+                      {pedido > max + 0.00001 && <div className="text-xs text-[var(--peligro)]">Es más de lo que puede devolver</div>}</td>
+                    <td className="text-right pr-2 py-1.5 whitespace-nowrap">{cp ? textoCajasPiezas(r, max) : `${fmtCantidad(max)} ${p.unidad}`}</td>
+                    <td className="py-1">{cp ? (
+                      <div className="flex gap-1">
+                        <label className="text-xs w-20">Cajas<input className="campo !py-1 text-right" inputMode="numeric" placeholder="0" value={devolucion.cantidades[`${r.id}:c`] ?? ""} onChange={(e) => set(`${r.id}:c`, e.target.value.replace(/\D/g, ""))} /></label>
+                        <label className="text-xs w-20">Piezas<input className="campo !py-1 text-right" inputMode="numeric" placeholder="0" value={devolucion.cantidades[`${r.id}:p`] ?? ""} onChange={(e) => set(`${r.id}:p`, e.target.value.replace(/\D/g, ""))} /></label>
+                      </div>
+                    ) : (
+                      <input className="campo !py-1 text-right w-28" inputMode="decimal" placeholder="0" value={devolucion.cantidades[r.id] ?? ""} onChange={(e) => set(r.id, e.target.value)} />
+                    )}</td>
                   </tr>
                 );
               })}
@@ -494,10 +542,11 @@ export default function DetalleVenta() {
           {(() => {
             const total = v.partidas.reduce((s, p) => {
               const r = renglones.find((x) => x.renglon === p.renglon);
-              const c = r ? Number(devolucion.cantidades[r.id] || 0) : 0;
+              const c = r ? cantDevuelta(r, devolucion.cantidades) : 0;
               return s + (c > 0 ? Math.round(Number(p.total) * c / Number(p.cantidad) * 100) / 100 : 0);
             }, 0);
-            return <div className="text-right mt-2">Importe a devolver: <b>{mxn(total)}</b></div>;
+            return <div className="text-right mt-2">Importe a devolver: <b>{mxn(total)}</b>
+              <div className="text-xs text-[var(--tenue)]">Al precio que pagó en esta nota (con sus descuentos), no al precio de lista.</div></div>;
           })()}
           <label className="block mt-3">Motivo
             <select className="campo" value={devolucion.motivo} onChange={(e) => setDevolucion({ ...devolucion, motivo: e.target.value })}>
@@ -509,10 +558,43 @@ export default function DetalleVenta() {
             <input className="campo" value={devolucion.detalle} onChange={(e) => setDevolucion({ ...devolucion, detalle: e.target.value })} />
           </label>
           <div className="mt-3 flex flex-col gap-1">
-            <label className={`flex items-center gap-2 ${v.cliente.es_publico_general ? "opacity-50" : ""}`}>
-              <input type="radio" disabled={v.cliente.es_publico_general} checked={devolucion.destino === "saldo_favor"} onChange={() => setDevolucion({ ...devolucion, destino: "saldo_favor" })} />
-              Dejarlo como saldo a favor del cliente {v.cliente.es_publico_general && <span className="text-xs">(no aplica a Público en general)</span>}
+            <label className="flex items-center gap-2">
+              <input type="radio" checked={devolucion.destino === "saldo_favor"} onChange={() => setDevolucion({ ...devolucion, destino: "saldo_favor" })} />
+              Dejarlo como saldo a favor {v.cliente.es_publico_general ? "de un cliente" : "del cliente"}
             </label>
+            {devolucion.destino === "saldo_favor" && v.cliente.es_publico_general && (
+              <div className="ml-6 rounded border border-[var(--borde)] p-2 flex flex-col gap-2">
+                {devolucion.cliente ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <span>Saldo a favor de: <b>{devolucion.cliente.nombre}</b></span>
+                    <button className="underline text-xs" onClick={() => setDevolucion({ ...devolucion, cliente: null })}>Cambiar</button>
+                  </div>
+                ) : buscaCli.nuevo ? (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <label className="text-xs">Nombre *<input className="campo !py-1" autoFocus value={buscaCli.nuevo.nombre} onChange={(e) => setBuscaCli({ ...buscaCli, nuevo: { ...buscaCli.nuevo!, nombre: e.target.value } })} /></label>
+                    <label className="text-xs">Teléfono<input className="campo !py-1" inputMode="tel" value={buscaCli.nuevo.telefono} onChange={(e) => setBuscaCli({ ...buscaCli, nuevo: { ...buscaCli.nuevo!, telefono: e.target.value } })} /></label>
+                    <div className="sm:col-span-2 flex justify-end gap-3 text-sm">
+                      <button className="underline" onClick={() => setBuscaCli({ ...buscaCli, nuevo: null })}>Cancelar</button>
+                      <button className="btn-primario !py-1" onClick={altaCliente}>Dar de alta</button>
+                    </div>
+                  </div>
+                ) : (<>
+                  <p className="text-xs text-[var(--tenue)]">La venta fue a Público en general: elige al cliente que se queda con el saldo, o dalo de alta.</p>
+                  <div className="flex gap-2">
+                    <input className="campo !py-1" placeholder="Buscar por nombre o teléfono…" value={buscaCli.texto} onChange={(e) => buscarCliente(e.target.value)} />
+                    <button className="btn-primario !py-1 whitespace-nowrap" onClick={() => setBuscaCli({ ...buscaCli, nuevo: { nombre: buscaCli.texto, telefono: "" } })}>+ Nuevo</button>
+                  </div>
+                  {buscaCli.lista.length > 0 && (
+                    <ul className="border border-[var(--borde)] rounded max-h-40 overflow-auto">
+                      {buscaCli.lista.map((c) => (
+                        <li key={c.id}><button className="w-full text-left px-2 py-1 hover:bg-[var(--resalte)]" onClick={() => { setDevolucion({ ...devolucion, cliente: { id: c.id, nombre: c.nombre } }); setBuscaCli({ texto: "", lista: [], nuevo: null }); }}>
+                          {c.nombre}{c.telefono && <span className="text-xs text-[var(--tenue)]"> · {c.telefono}</span>}</button></li>
+                      ))}
+                    </ul>
+                  )}
+                </>)}
+              </div>
+            )}
             <label className="flex items-center gap-2">
               <input type="radio" checked={devolucion.destino === "dinero"} onChange={() => setDevolucion({ ...devolucion, destino: "dinero" })} /> Devolverle el dinero
               {devolucion.destino === "dinero" && (
@@ -523,10 +605,32 @@ export default function DetalleVenta() {
               )}
             </label>
           </div>
+          {(() => {
+            // Venta pagada con tarjeta: en efectivo o transferencia solo hasta lo que pagó así (0051)
+            if (!reglasDev.activas || devolucion.destino !== "dinero" || !["efectivo", "transferencia"].includes(devolucion.forma)) return null;
+            const tarjeta = v.pagos.filter((x) => x.forma.startsWith("tarjeta")).reduce((a, x) => a + Number(x.importe), 0);
+            if (tarjeta <= 0) return null;
+            const otro = v.pagos.filter((x) => x.forma === "efectivo" || x.forma === "transferencia").reduce((a, x) => a + Number(x.importe), 0)
+              - devoluciones.filter((x) => x.forma === "efectivo" || x.forma === "transferencia").reduce((a, x) => a + Number(x.importe), 0);
+            const total = renglones.reduce((a, rg) => {
+              const pa = v.partidas.find((x) => x.renglon === rg.renglon); const c = cantDevuelta(rg, devolucion.cantidades);
+              return a + (pa && c > 0 ? Math.round(Number(pa.total) * c / Number(pa.cantidad) * 100) / 100 : 0);
+            }, 0);
+            if (total <= Math.max(otro, 0) + 0.005) return null;
+            return (
+              <div role="alert" className="mt-3 rounded px-3 py-2 text-sm bg-amber-100 text-amber-900">
+                Esta venta se pagó con tarjeta{otro > 0 ? ` (en efectivo o transferencia solo pagó ${mxn(otro)})` : ""}: no se devuelve en {devolucion.forma === "efectivo" ? "efectivo" : "transferencia"}.
+                {reglasDev.puedeEfectivo
+                  ? <b> Tienes permiso para autorizarla; quedará registrado que la autorizaste tú.</b>
+                  : <> Déjalo como <b>saldo a favor</b> o <b>contacta a matriz</b> (llamada o WhatsApp) para que un gerente o administrador la autorice y la registre.</>}
+              </div>
+            );
+          })()}
           <p className="text-xs text-amber-800 mt-3">Al registrar la devolución la venta queda cerrada y ya no se podrá cancelar.</p>
           <div className="flex justify-end gap-3 mt-4">
             <button className="px-4 py-2 rounded border border-[var(--borde)]" onClick={() => setDevolucion(null)}>Cerrar</button>
-            <button className="btn-primario" disabled={trabajando || !devolucion.motivo || !Object.values(devolucion.cantidades).some((c) => Number(c) > 0)}
+            <button className="btn-primario" disabled={trabajando || !devolucion.motivo || !renglones.some((rg) => cantDevuelta(rg, devolucion.cantidades) > 0)
+              || (devolucion.destino === "saldo_favor" && v.cliente.es_publico_general && !devolucion.cliente)}
               onClick={guardarDevolucion}>{trabajando ? "Guardando…" : "Registrar devolución"}</button>
           </div>
         </Ventana>
@@ -599,4 +703,23 @@ function Ventana({ titulo, onCerrar, children }: { titulo: string; onCerrar: () 
       </div>
     </div>
   );
+}
+
+/** ¿Se devuelve en cajas + piezas? (el producto tiene unidad CAJA y PIEZA) */
+type RenglonDev = { id: string; factor: number; fCaja: number | null; fPieza: number | null };
+function conCajasPiezas(r: RenglonDev): boolean { return !!(r.fCaja && r.fPieza && r.fCaja > r.fPieza); }
+/** Cantidad a devolver en la unidad en que se vendió el renglón (6 decimales) */
+function cantDevuelta(r: RenglonDev, c: Record<string, string>): number {
+  if (conCajasPiezas(r)) {
+    const base = Number(c[`${r.id}:c`] || 0) * r.fCaja! + Number(c[`${r.id}:p`] || 0) * r.fPieza!;
+    return Math.round(base / r.factor * 1e6) / 1e6;
+  }
+  return Number(c[r.id] || 0) || 0;
+}
+/** "3 cajas 2 pz" a partir de una cantidad en la unidad del renglón */
+function textoCajasPiezas(r: RenglonDev, cant: number): string {
+  const piezas = Math.round(cant * r.factor / r.fPieza!);
+  const porCaja = Math.round(r.fCaja! / r.fPieza!);
+  const cj = Math.floor(piezas / porCaja), pz = piezas - cj * porCaja;
+  return [cj ? `${cj} caja${cj === 1 ? "" : "s"}` : "", pz ? `${pz} pz` : ""].filter(Boolean).join(" ") || "0";
 }
