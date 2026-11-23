@@ -2,7 +2,7 @@
 -- REINICIAR DATOS DE PRUEBA  ·  ¡BORRA INFORMACIÓN Y NO SE PUEDE DESHACER!
 -- No es una migración: se ejecuta a mano, una sola vez, en el SQL Editor de Supabase.
 --
--- BORRA: ventas, pagos, devoluciones, cotizaciones, apartados, entregas, entradas, traspasos,
+-- BORRA: ventas, pagos, devoluciones, cotizaciones, apartados, envíos agendados, entregas, entradas, traspasos,
 --        ajustes, existencias y kardex, cortes de caja, retiros y gastos, movimientos de saldo
 --        a favor, bitácora (historial), TODOS los productos (con sus precios y unidades; se vuelven a crear
 --        los conceptos genéricos CVG y FLETE) y
@@ -15,20 +15,24 @@
 -- =============================================================================
 begin;
 
--- Movimientos de operación, inventario y productos (truncate no dispara los candados del kardex)
-truncate table
-  public.venta_pagos, public.venta_devoluciones, public.devoluciones_producto, public.venta_partidas, public.ventas,
-  public.cotizacion_partidas, public.cotizaciones,
-  public.apartado_pagos, public.apartado_partidas, public.apartados,
-  public.entrega_partidas, public.entregas,
-  public.entrada_partidas, public.entradas,
-  public.traspaso_partidas, public.traspasos,
-  public.ajuste_partidas, public.ajustes, public.ajustes_costo_venta, public.costo_pendiente,
-  public.movimientos, public.existencias,
-  public.retiros_caja, public.cortes_caja,
-  public.saldo_favor_movimientos,
-  public.bitacora,
-  public.precios, public.unidades_venta, public.producto_almacen, public.productos;
+-- Movimientos de operación, inventario y productos (truncate no dispara los candados del kardex).
+-- Todo en un solo truncate porque las tablas se apuntan entre sí; los envíos (0059) solo si ya existen.
+do $$ begin
+  execute 'truncate table '
+    || case when to_regclass('public.envios') is not null then 'public.envio_ventas, public.envios, ' else '' end
+    || 'public.venta_pagos, public.venta_devoluciones, public.devoluciones_producto, public.venta_partidas, public.ventas,
+        public.cotizacion_partidas, public.cotizaciones,
+        public.apartado_pagos, public.apartado_partidas, public.apartados,
+        public.entrega_partidas, public.entregas,
+        public.entrada_partidas, public.entradas,
+        public.traspaso_partidas, public.traspasos,
+        public.ajuste_partidas, public.ajustes, public.ajustes_costo_venta, public.costo_pendiente,
+        public.movimientos, public.existencias,
+        public.retiros_caja, public.cortes_caja,
+        public.saldo_favor_movimientos,
+        public.bitacora,
+        public.precios, public.unidades_venta, public.producto_almacen, public.productos';
+end $$;
 
 -- Clientes: solo queda Público en General, sin saldo a favor
 delete from public.clientes where not es_publico_general;

@@ -16,6 +16,7 @@ interface Grupo { texto: string; icono: string; href?: string; items?: Item[] }
 
 export const MENU: Grupo[] = [
   { texto: "Inicio", icono: "⌂", href: "/" },
+  { texto: "Agenda", icono: "▦", href: "/agenda" },
   { texto: "Compras", icono: "🛒", items: [
     { texto: "Productos", href: "/compras/productos" },
     { texto: "Proveedores", href: "/compras/proveedores" },

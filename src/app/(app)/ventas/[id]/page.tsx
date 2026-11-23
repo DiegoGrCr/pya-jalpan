@@ -141,6 +141,12 @@ export default function DetalleVenta() {
   };
 
   useEffect(() => { recargar(); }, [recargar]);
+  // Envíos agendados con esta nota (0059)
+  const [envios, setEnvios] = useState<{ id: string; numero: number; fecha: string; hora: string | null; destino: string; estado: string }[]>([]);
+  useEffect(() => {
+    supabase().from("envio_ventas").select("envios(id, numero, fecha, hora, destino, estado)").eq("venta_id", id)
+      .then(({ data, error }: { data: unknown; error: unknown }) => { if (!error) setEnvios(((data ?? []) as { envios: typeof envios[number] | null }[]).map((x) => x.envios).filter((x): x is typeof envios[number] => !!x && x.estado !== "cancelado")); });
+  }, [id]);
   // Los avisos de éxito desaparecen solos
   useEffect(() => {
     if (msg?.tipo !== "ok") return;
@@ -305,6 +311,7 @@ export default function DetalleVenta() {
     ...(!cancelada && devProd !== null ? [{ texto: "Devolver productos", fn: () => setDevolucion({ clave: crypto.randomUUID(), cantidades: {}, motivo: "", detalle: "", cliente: null,
         destino: v.cliente.es_publico_general ? "dinero" as const : "saldo_favor" as const, forma: "efectivo" }),
       deshabilitado: !renglones.some((r) => r.cantidad_entregada - r.cantidad_devuelta > 0), nota: "Solo se devuelve material ya entregado" }] : []),
+    ...(!cancelada ? [{ texto: "Agendar envío", fn: () => { window.location.href = `/agenda?nuevo=1&ventas=${v.id}`; } }] : []),
     { texto: "Registrar pago", fn: () => setPago({ clave: crypto.randomUUID(), forma: "efectivo", importe: Number(v.saldo).toFixed(2), referencia: "", comentarios: "" }),
       deshabilitado: cancelada || !(Number(v.saldo) > 0), nota: Number(v.saldo) > 0 ? undefined : "La venta no tiene saldo pendiente" },
     { texto: "Imprimir ticket", fn: () => imprimir(ticket) },
@@ -325,6 +332,12 @@ export default function DetalleVenta() {
 
   return (
     <div className="p-3 sm:p-5">
+      {envios.map((e) => (
+        <Link key={e.id} href="/agenda" className="block rounded px-4 py-2 bg-sky-50 text-sky-900 border border-sky-200 text-sm hover:underline">
+          🚚 Envío #{e.numero} {e.estado === "entregado" ? "entregado" : "agendado"} para el {new Date(`${e.fecha}T12:00:00`).toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" })}
+          {e.hora ? ` (${e.hora})` : ""} a {e.destino}{e.estado === "en_ruta" ? " · en ruta" : ""}
+        </Link>
+      ))}
       {msg && (
         msg.tipo === "ok"
           // Aviso discreto: esquina inferior derecha y se quita solo

@@ -41,6 +41,7 @@ export default function ListaVentas() {
   const [pagina, setPagina] = useState(0);
   const [cargando, setCargando] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
+  const [marcadas, setMarcadas] = useState<Set<string>>(new Set());   // para agendar un envío con varias notas
 
   useEffect(() => {
     (async () => {
@@ -103,7 +104,11 @@ export default function ListaVentas() {
     <div className="p-3 sm:p-5 flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold">Ventas</h1>
-        <Link href="/ventas/capturar" className="btn-primario">+ Capturar venta</Link>
+        <div className="flex gap-2 items-center">
+          {marcadas.size > 0 && <Link href={`/agenda?nuevo=1&ventas=${[...marcadas].join(",")}`} className="px-3 py-2 rounded border border-[var(--acento)] text-[var(--acento)] text-sm">
+            Agendar envío con {marcadas.size} nota{marcadas.size === 1 ? "" : "s"}</Link>}
+          <Link href="/ventas/capturar" className="btn-primario">+ Capturar venta</Link>
+        </div>
       </div>
       {msg && <div role="alert" className="rounded px-4 py-2 bg-amber-100 text-amber-900">{msg}</div>}
 
@@ -138,7 +143,7 @@ export default function ListaVentas() {
         <table className="w-full text-sm min-w-[1100px]">
           <thead style={{ color: "var(--acento)" }}>
             <tr className="text-left border-b border-[var(--borde)]">
-              <th className="p-2 font-normal">#</th><th className="pr-3 font-normal">Tipo</th><th className="pr-3 font-normal">Fecha</th>
+              <th className="pl-2 w-6"><span className="sr-only">Elegir para agendar</span></th><th className="p-2 font-normal">#</th><th className="pr-3 font-normal">Tipo</th><th className="pr-3 font-normal">Fecha</th>
               <th className="pr-3 font-normal">Cliente</th><th className="pr-3 font-normal">Sucursal</th><th className="pr-3 font-normal">Almacén</th>
               <th className="pr-3 font-normal">Capturó</th><th className="pr-3 font-normal">Vencimiento</th>
               <th className="pr-3 font-normal text-right">Subtotal</th><th className="pr-3 font-normal text-right">Impuestos</th>
@@ -147,12 +152,14 @@ export default function ListaVentas() {
             </tr>
           </thead>
           <tbody>
-            {cargando && !filas.length && <EsqueletoFilas columnas={14} />}
+            {cargando && !filas.length && <EsqueletoFilas columnas={15} />}
             {filas.map((f, i) => {
               const cancelada = f.estado === "cancelada";
               const sinEntregar = !cancelada && f.venta_partidas.some((p) => Number(p.cantidad_entregada) < Number(p.cantidad));
               return (
                 <tr key={f.id} className="border-b border-[var(--borde)]" style={{ background: i % 2 ? "transparent" : "#f7f9fb", opacity: cancelada ? 0.6 : 1 }}>
+                  <td className="pl-2">{!cancelada && <input type="checkbox" title="Elegir para agendar un envío" aria-label={`Elegir ${f.serie} ${f.folio}`} checked={marcadas.has(f.id)}
+                    onChange={(e) => setMarcadas((m) => { const n = new Set(m); if (e.target.checked) n.add(f.id); else n.delete(f.id); return n; })} />}</td>
                   <td className="p-2 whitespace-nowrap"><Link className="underline" href={`/ventas/${f.id}`}>{f.serie} {f.folio}</Link></td>
                   <td className="pr-3">Remisión</td>
                   <td className="pr-3 whitespace-nowrap">{fechaCorta(f.fecha)}</td>
@@ -173,7 +180,7 @@ export default function ListaVentas() {
               );
             })}
             {!cargando && filas.length === 0 && (
-              <tr><td colSpan={14} className="p-6 text-center text-[var(--tenue)]">No hay ventas con esos filtros.</td></tr>
+              <tr><td colSpan={15} className="p-6 text-center text-[var(--tenue)]">No hay ventas con esos filtros.</td></tr>
             )}
           </tbody>
         </table>
