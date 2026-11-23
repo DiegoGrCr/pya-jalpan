@@ -31,9 +31,9 @@ describe("agenda de envíos", () => {
     expect((await asUser(conta, async (c) => (await c.query(`select id from envios`)).rows)).length).toBe(1);
   });
 
-  it("solo viaje (sin notas) necesita describir qué se lleva; cambia de estado y queda en historial", async () => {
-    await expect(rpc(s.cajeroB, "guardar_envio", { idempotency_key: key(), fecha: "2026-12-02", destino: "Jalpan" })).rejects.toThrow(/Liga al menos una nota/);
-    const r = await rpc(s.cajeroB, "guardar_envio", { idempotency_key: key(), fecha: "2026-12-02", destino: "Jalpan", contenido: "Recoger material en bodega" });
+  it("basta el día y el destino; cambia de estado y queda en historial", async () => {
+    await expect(rpc(s.cajeroB, "guardar_envio", { idempotency_key: key(), fecha: "2026-12-02", destino: " " })).rejects.toThrow(/destino/);
+    const r = await rpc(s.cajeroB, "guardar_envio", { idempotency_key: key(), fecha: "2026-12-02", destino: "Jalpan" });   // basta día y destino
     await rpc(s.cajeroB, "cambiar_estado_envio", { envio_id: r.envio_id, estado: "en_ruta" });
     await rpc(s.cajeroA, "cambiar_estado_envio", { envio_id: r.envio_id, estado: "entregado", recibio: "Encargado de obra" });
     expect((await q(`select estado, recibio, entregado_por from envios where id = $1`, [r.envio_id]))[0]).toEqual({ estado: "entregado", recibio: "Encargado de obra", entregado_por: s.cajeroA });

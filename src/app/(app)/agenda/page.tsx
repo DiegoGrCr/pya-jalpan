@@ -23,7 +23,7 @@ interface Envio {
   clientes: { nombre: string; razon_social: string | null } | null; sucursales: { codigo: string } | null;
 }
 interface NotaEnvio { envio_id: string; venta_id: string; serie: string; folio: number; cliente: string; total: number; saldo: number; estado: string; por_entregar: boolean; sucursal: string }
-interface NotaElegida { id: string; serie: string; folio: number; cliente: string; total: number }
+interface NotaElegida { id: string; serie: string; folio: number; cliente: string; total: number; telefono?: string | null }
 type Form = { id?: string; clave: string; fecha: string; hora: string; destino: string; direccion: string; contacto: string; telefono: string; prioridad: Prioridad;
   sucursal_id: string; chofer: string; vehiculo: string; contenido: string; notas: string; ventas: NotaElegida[] };
 
@@ -65,6 +65,7 @@ export default function Agenda() {
   const [historial, setHistorial] = useState<{ fecha: string; accion: string; usuario: string; detalle: Record<string, unknown> }[] | null>(null);
   const [trabajando, setTrabajando] = useState(false);
   const [busca, setBusca] = useState<{ texto: string; lista: NotaElegida[] }>({ texto: "", lista: [] });
+  const [masDatos, setMasDatos] = useState(false);   // el desplegable de datos opcionales
 
   const rango = vista === "semana" ? { d: lunes, h: masDias(lunes, 6) } : { d: desde, h: hasta };
 
@@ -82,8 +83,9 @@ export default function Agenda() {
           const vs = (data ?? []) as unknown as { id: string; serie: string; folio: number; total: string; sucursal_id: string; clientes: { nombre: string; razon_social: string | null; direccion: string | null; telefono: string | null } | null }[];
           f.ventas = vs.map((v) => ({ id: v.id, serie: v.serie, folio: v.folio, cliente: v.clientes?.razon_social || v.clientes?.nombre || "", total: Number(v.total) }));
           f.sucursal_id = vs[0]?.sucursal_id ?? "";
-          f.direccion = vs[0]?.clientes?.direccion ?? ""; f.telefono = vs[0]?.clientes?.telefono ?? ""; f.contacto = vs[0]?.clientes?.nombre ?? "";
+          f.direccion = vs[0]?.clientes?.direccion ?? ""; f.telefono = vs[0]?.clientes?.telefono ?? "";
         }
+        setMasDatos(ids.length > 0);
         setForm(f);
       })();
     }
@@ -121,7 +123,7 @@ export default function Agenda() {
     if (t.length < 2) { setBusca((b) => ({ ...b, lista: [] })); return; }
     const h = setTimeout(async () => {
       const sb = supabase();
-      let q = sb.from("ventas").select("id, serie, folio, total, clientes(nombre, razon_social)").eq("estado", "confirmada").order("fecha", { ascending: false }).limit(12);
+      let q = sb.from("ventas").select("id, serie, folio, total, clientes(nombre, razon_social, telefono)").eq("estado", "confirmada").order("fecha", { ascending: false }).limit(12);
       const folio = /^([A-Za-z]*)\s*-?\s*(\d+)$/.exec(t);
       if (folio) { q = q.eq("folio", Number(folio[2])); if (folio[1]) q = q.ilike("serie", folio[1]); }
       else {
@@ -129,8 +131,8 @@ export default function Agenda() {
         q = q.in("cliente_id", ((cl ?? []) as { id: string }[]).map((c) => c.id).concat(["00000000-0000-0000-0000-000000000000"]));
       }
       const { data } = await q;
-      setBusca((b) => ({ ...b, lista: ((data ?? []) as unknown as { id: string; serie: string; folio: number; total: string; clientes: { nombre: string; razon_social: string | null } | null }[])
-        .map((v) => ({ id: v.id, serie: v.serie, folio: v.folio, cliente: v.clientes?.razon_social || v.clientes?.nombre || "", total: Number(v.total) })) }));
+      setBusca((b) => ({ ...b, lista: ((data ?? []) as unknown as { id: string; serie: string; folio: number; total: string; clientes: { nombre: string; razon_social: string | null; telefono: string | null } | null }[])
+        .map((v) => ({ id: v.id, serie: v.serie, folio: v.folio, cliente: v.clientes?.razon_social || v.clientes?.nombre || "", total: Number(v.total), telefono: v.clientes?.telefono ?? null })) }));
     }, 250);
     return () => clearTimeout(h);
   }, [busca.texto]);
@@ -166,9 +168,10 @@ export default function Agenda() {
     const { data } = await supabase().rpc("historial_envio", { p_envio: e.id });
     setHistorial((data ?? []) as typeof historial);
   };
-  const editar = (e: Envio) => setForm({ id: e.id, clave: crypto.randomUUID(), fecha: e.fecha, hora: e.hora ?? "", destino: e.destino, direccion: e.direccion ?? "",
+  const nuevo = (fecha: string) => { setMasDatos(false); setForm(formVacio(fecha)); };
+  const editar = (e: Envio) => { setMasDatos(true); setForm({ id: e.id, clave: crypto.randomUUID(), fecha: e.fecha, hora: e.hora ?? "", destino: e.destino, direccion: e.direccion ?? "",
     contacto: e.contacto ?? "", telefono: e.telefono ?? "", prioridad: e.prioridad, sucursal_id: e.sucursal_id ?? "", chofer: e.chofer ?? "", vehiculo: e.vehiculo ?? "",
-    contenido: e.contenido ?? "", notas: e.notas ?? "", ventas: (notas[e.id] ?? []).map((n) => ({ id: n.venta_id, serie: n.serie, folio: n.folio, cliente: n.cliente, total: Number(n.total) })) });
+    contenido: e.contenido ?? "", notas: e.notas ?? "", ventas: (notas[e.id] ?? []).map((n) => ({ id: n.venta_id, serie: n.serie, folio: n.folio, cliente: n.cliente, total: Number(n.total) })) }); };
 
   const porDia = useMemo(() => {
     const m = new Map<string, Envio[]>();
@@ -202,7 +205,7 @@ export default function Agenda() {
     <div className="p-3 sm:p-5 flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-xl font-semibold">Agenda de envíos</h1>
-        {!solo && <button className="btn-primario" onClick={() => setForm(formVacio(vista === "semana" && lunes > hoy() ? lunes : hoy()))}>+ Agendar envío</button>}
+        {!solo && <button className="btn-primario" onClick={() => nuevo(vista === "semana" && lunes > hoy() ? lunes : hoy())}>+ Agendar envío</button>}
       </div>
       {msg && <div role={msg.tipo === "ok" ? "status" : "alert"} className={`rounded px-4 py-2 ${msg.tipo === "ok" ? "bg-emerald-100 text-emerald-900" : "bg-amber-100 text-amber-900"}`}>{msg.texto}</div>}
       {atrasados > 0 && <div className="rounded px-4 py-2 bg-red-50 text-red-800 border border-red-200 text-sm">Hay {atrasados} envío{atrasados === 1 ? "" : "s"} de días anteriores sin marcar como entregado{atrasados === 1 ? "" : "s"}.</div>}
@@ -233,7 +236,7 @@ export default function Agenda() {
             <div key={d} className={`rounded-md border p-2 min-h-32 flex flex-col gap-2 ${d === hoy() ? "border-[var(--acento)] bg-[var(--resalte)]/40" : "border-[var(--borde)] bg-[var(--panel)]"}`}>
               <div className="flex justify-between items-center text-xs">
                 <span className={`capitalize ${d === hoy() ? "font-semibold text-[var(--acento)]" : "text-[var(--tenue)]"}`}>{diaCorto(d)}{d === hoy() ? " · hoy" : ""}</span>
-                {!solo && <button className="text-[var(--acento)] text-base leading-none" title={`Agendar para el ${diaLargo(d)}`} onClick={() => setForm(formVacio(d))}>＋</button>}
+                {!solo && <button className="text-[var(--acento)] text-base leading-none" title={`Agendar para el ${diaLargo(d)}`} onClick={() => nuevo(d)}>＋</button>}
               </div>
               {(porDia.get(d) ?? []).map((e) => <Tarjeta key={e.id} e={e} />)}
               {cargando && !envios.length && <div className="h-10 rounded bg-[var(--borde)] animate-pulse" />}
@@ -283,7 +286,7 @@ export default function Agenda() {
             </div>
             <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 mt-3">
               {detalle.direccion && <><dt className="text-[var(--tenue)]">Dirección</dt><dd>{detalle.direccion}</dd></>}
-              {(detalle.contacto || detalle.telefono) && <><dt className="text-[var(--tenue)]">Contacto</dt><dd>{detalle.contacto}{detalle.telefono && <> · <a className="underline" href={`tel:${detalle.telefono}`}>{detalle.telefono}</a></>}</dd></>}
+              {detalle.telefono && <><dt className="text-[var(--tenue)]">Teléfono del cliente</dt><dd><a className="underline" href={`tel:${detalle.telefono}`}>{detalle.telefono}</a>{detalle.contacto ? ` · ${detalle.contacto}` : ""}</dd></>}
               {detalle.sucursales && <><dt className="text-[var(--tenue)]">Sale de</dt><dd>{detalle.sucursales.codigo}</dd></>}
               {(detalle.chofer || detalle.vehiculo) && <><dt className="text-[var(--tenue)]">Chofer / vehículo</dt><dd>{[detalle.chofer, detalle.vehiculo].filter(Boolean).join(" · ")}</dd></>}
               {detalle.contenido && <><dt className="text-[var(--tenue)]">Lleva</dt><dd>{detalle.contenido}</dd></>}
@@ -333,49 +336,55 @@ export default function Agenda() {
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-3" onClick={() => setForm(null)}>
           <div role="dialog" aria-label="Agendar envío" className="bg-[var(--panel)] rounded-md shadow-lg w-full max-w-2xl p-5 text-sm max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-semibold">{form.id ? "Editar envío" : "Agendar envío"}</h2>
-            <div className="grid gap-3 sm:grid-cols-3 mt-3">
+            <div className="grid gap-3 sm:grid-cols-[1fr_2fr_1fr] mt-3">
               <label>Día *<input type="date" className="campo" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} /></label>
-              <label>Hora (opcional)<input className="campo" placeholder="p. ej. 9:00 o en la mañana" value={form.hora} onChange={(e) => setForm({ ...form, hora: e.target.value })} /></label>
+              <label>¿A dónde? *<input className="campo" autoFocus placeholder="p. ej. Pinal de Amoles" value={form.destino} onChange={(e) => setForm({ ...form, destino: e.target.value })} /></label>
               <label>Prioridad<select className="campo" value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value as Prioridad })}>
                 {(Object.keys(PRIORIDAD) as Prioridad[]).map((k) => <option key={k} value={k}>{PRIORIDAD[k].t}</option>)}</select></label>
-              <label className="sm:col-span-2">Destino *<input className="campo" placeholder="p. ej. Pinal de Amoles" value={form.destino} onChange={(e) => setForm({ ...form, destino: e.target.value })} /></label>
-              <label>Sale de<select className="campo" value={form.sucursal_id} onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}>
-                <option value="">—</option>{sucursales.map((s) => <option key={s.id} value={s.id}>{s.codigo} - {s.nombre}</option>)}</select></label>
-              <label className="sm:col-span-3">Dirección / referencias<input className="campo" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} /></label>
-              <label>Contacto en destino<input className="campo" value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} /></label>
-              <label>Teléfono<input className="campo" inputMode="tel" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></label>
-              <div className="grid grid-cols-2 gap-2">
-                <label>Chofer<input className="campo" value={form.chofer} onChange={(e) => setForm({ ...form, chofer: e.target.value })} /></label>
-                <label>Vehículo<input className="campo" value={form.vehiculo} onChange={(e) => setForm({ ...form, vehiculo: e.target.value })} /></label>
-              </div>
             </div>
 
-            <div className="mt-4">
-              <div className="font-medium">Notas de venta que van en el envío</div>
-              {form.ventas.map((v) => (
-                <div key={v.id} className="flex justify-between items-center gap-2 py-1 border-b border-[var(--borde)]">
-                  <span>{v.serie} {v.folio} <span className="text-xs text-[var(--tenue)]">{v.cliente}</span></span>
-                  <span className="flex items-center gap-3">{$(v.total)}<button className="text-[var(--peligro)]" aria-label="Quitar nota" onClick={() => setForm({ ...form, ventas: form.ventas.filter((x) => x.id !== v.id) })}>✕</button></span>
+            <button type="button" className="mt-4 w-full flex justify-between items-center px-3 py-2 rounded border border-[var(--borde)] hover:bg-[var(--resalte)]"
+              aria-expanded={masDatos} onClick={() => setMasDatos(!masDatos)}>
+              <span>Más datos (opcional){form.ventas.length ? ` · ${form.ventas.length} nota${form.ventas.length === 1 ? "" : "s"}` : ""}</span>
+              <span className="text-[var(--tenue)]">{masDatos ? "▲" : "▼"}</span>
+            </button>
+            {masDatos && (
+              <div className="border border-t-0 border-[var(--borde)] rounded-b p-3 flex flex-col gap-3">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label>Hora<input className="campo" placeholder="p. ej. 9:00 o en la mañana" value={form.hora} onChange={(e) => setForm({ ...form, hora: e.target.value })} /></label>
+                  <label>Teléfono del cliente<input className="campo" inputMode="tel" value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></label>
+                  <label>Sale de<select className="campo" value={form.sucursal_id} onChange={(e) => setForm({ ...form, sucursal_id: e.target.value })}>
+                    <option value="">—</option>{sucursales.map((s) => <option key={s.id} value={s.id}>{s.codigo} - {s.nombre}</option>)}</select></label>
+                  <label className="sm:col-span-3">Dirección / referencias<input className="campo" value={form.direccion} onChange={(e) => setForm({ ...form, direccion: e.target.value })} /></label>
                 </div>
-              ))}
-              <div className="relative mt-1">
-                <input className="campo" placeholder="Agregar nota: folio (p. ej. AR 120) o cliente…" value={busca.texto} onChange={(e) => setBusca({ ...busca, texto: e.target.value })} />
-                {busca.lista.length > 0 && (
-                  <ul className="absolute z-10 w-full bg-[var(--panel)] border border-[var(--borde)] shadow max-h-56 overflow-auto">
-                    {busca.lista.filter((v) => !form.ventas.some((x) => x.id === v.id)).map((v) => (
-                      <li key={v.id}><button className="w-full text-left px-2 py-1.5 hover:bg-[var(--resalte)]" onClick={() => { setForm({ ...form, ventas: [...form.ventas, v] }); setBusca({ texto: "", lista: [] }); }}>
-                        {v.serie} {v.folio} · {v.cliente} · {$(v.total)}</button></li>
-                    ))}
-                  </ul>
-                )}
+                <div>
+                  <div className="font-medium">Notas de venta que van en el envío</div>
+                  {form.ventas.map((v) => (
+                    <div key={v.id} className="flex justify-between items-center gap-2 py-1 border-b border-[var(--borde)]">
+                      <span>{v.serie} {v.folio} <span className="text-xs text-[var(--tenue)]">{v.cliente}</span></span>
+                      <span className="flex items-center gap-3">{$(v.total)}<button className="text-[var(--peligro)]" aria-label="Quitar nota" onClick={() => setForm({ ...form, ventas: form.ventas.filter((x) => x.id !== v.id) })}>✕</button></span>
+                    </div>
+                  ))}
+                  <div className="relative mt-1">
+                    <input className="campo" placeholder="Agregar nota: folio (p. ej. AR 120) o cliente…" value={busca.texto} onChange={(e) => setBusca({ ...busca, texto: e.target.value })} />
+                    {busca.lista.length > 0 && (
+                      <ul className="absolute z-10 w-full bg-[var(--panel)] border border-[var(--borde)] shadow max-h-56 overflow-auto">
+                        {busca.lista.filter((v) => !form.ventas.some((x) => x.id === v.id)).map((v) => (
+                          <li key={v.id}><button className="w-full text-left px-2 py-1.5 hover:bg-[var(--resalte)]" onClick={() => {
+                            setForm({ ...form, ventas: [...form.ventas, v], telefono: form.telefono || v.telefono || "" }); setBusca({ texto: "", lista: [] }); }}>
+                            {v.serie} {v.folio} · {v.cliente} · {$(v.total)}</button></li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+                <label>Qué se lleva o qué se va a hacer<input className="campo" placeholder="p. ej. 20 cajas de muestra, recoger material…" value={form.contenido} onChange={(e) => setForm({ ...form, contenido: e.target.value })} /></label>
+                <label>Notas<textarea className="campo h-16" placeholder="Indicaciones, horario de recepción, cobrar al entregar…" value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} /></label>
               </div>
-            </div>
-            <label className="block mt-3">{form.ventas.length ? "Algo más que se lleva (opcional)" : "Qué se lleva o qué se va a hacer *"}
-              <input className="campo" placeholder="p. ej. 20 cajas de muestra, recoger material…" value={form.contenido} onChange={(e) => setForm({ ...form, contenido: e.target.value })} /></label>
-            <label className="block mt-2">Notas<textarea className="campo h-16" placeholder="Indicaciones, horario de recepción, cobrar al entregar…" value={form.notas} onChange={(e) => setForm({ ...form, notas: e.target.value })} /></label>
+            )}
             <div className="flex justify-end gap-3 mt-4">
               <button className="px-4 py-2 rounded border border-[var(--borde)]" onClick={() => setForm(null)}>Cancelar</button>
-              <button className="btn-primario" disabled={trabajando || !form.fecha || !form.destino.trim() || (!form.ventas.length && !form.contenido.trim())} onClick={guardar}>
+              <button className="btn-primario" disabled={trabajando || !form.fecha || !form.destino.trim()} onClick={guardar}>
                 {trabajando ? "Guardando…" : form.id ? "Guardar cambios" : "Agendar"}</button>
             </div>
           </div>
