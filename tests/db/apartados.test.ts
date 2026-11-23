@@ -1,4 +1,4 @@
-/** Apartados: anticipo mínimo, reserva sin descontar, abonos, liquidación a venta y cancelación con retención. */
+/** Apartados: sin anticipo mínimo, reserva sin descontar, abonos, liquidación a venta y cancelación (retención a criterio). */
 import { beforeAll, afterAll, describe, it, expect } from "vitest";
 import { startDb, stopDb, seed, rpc, asUser, q, key, stock, Seed } from "./setup";
 
@@ -26,10 +26,13 @@ const disponible = async () => {
 };
 
 describe("Apartados", () => {
-  it("exige cliente registrado y anticipo mínimo de 30 %", async () => {
-    await expect(rpc(s.cajeroA, "crear_apartado", apartado([{ forma: "efectivo", importe: 1000 }]))).rejects.toThrow(/anticipo mínimo es 1080/);
+  it("exige cliente registrado; se puede apartar sin anticipo, pero no con el total pagado", async () => {
     await expect(rpc(s.cajeroA, "crear_apartado", apartado([{ forma: "efectivo", importe: 1080 }], { cliente_id: null })))
       .rejects.toThrow(/cliente registrado/);
+    const a = await rpc(s.cajeroA, "crear_apartado", apartado([]));
+    expect({ abonado: Number(a.abonado), saldo: Number(a.saldo) }).toEqual({ abonado: 0, saldo: 3600 });
+    await expect(rpc(s.cajeroA, "crear_apartado", apartado([{ forma: "efectivo", importe: 3600 }]))).rejects.toThrow(/cubre el total/);
+    await rpc(s.admin, "cancelar_apartado", { apartado_id: a.apartado_id, motivo: "Prueba" });
   });
 
   it("apartar NO descuenta inventario: lo reserva y reduce el disponible", async () => {
@@ -81,24 +84,51 @@ describe("Apartados", () => {
     })).rejects.toThrow(/solo aplica al liquidar/);
   });
 
-  it("cancelar requiere permiso, libera la reserva y retiene el 10 % configurado (no más)", async () => {
+  it("cancelar requiere permiso, libera la reserva; quien cancela decide cuánto retener y el resto se devuelve", async () => {
     const a = await rpc(s.cajeroA, "crear_apartado", apartado([{ forma: "efectivo", importe: 2000 }]));
     const reservado = (await disponible()).apartado;
-    await expect(asUser(s.cajeroA, (c) => c.query(`select cancelar_apartado($1, 'Ya no lo quiere')`, [a.apartado_id])))
-      .rejects.toThrow(/permiso/);
-    await expect(asUser(s.admin, (c) => c.query(`select cancelar_apartado($1, 'x', 'efectivo', 50)`, [a.apartado_id])))
-      .rejects.toThrow(/no puede ser mayor a 10/);
-    const r = await asUser(s.admin, async (c) => (await c.query(`select cancelar_apartado($1, 'Ya no lo quiere') r`, [a.apartado_id])).rows[0].r);
-    expect(r).toEqual({ retenido: 200, devuelto: 1800, porcentaje: 10 });
+    await expect(rpc(s.cajeroA, "cancelar_apartado", { apartado_id: a.apartado_id, motivo: "Ya no lo quiere" })).rejects.toThrow(/permiso/);
+    await expect(rpc(s.admin, "cancelar_apartado", { apartado_id: a.apartado_id, motivo: "x", retener: 2500 })).rejects.toThrow(/de 0 a lo abonado/);
+    const r = await rpc(s.admin, "cancelar_apartado", { apartado_id: a.apartado_id, motivo: "Ya no lo quiere", retener: 300, destino: "dinero", forma: "efectivo" });
+    expect(r).toEqual({ retenido: 300, devuelto: 1700, destino: "dinero" });
     expect((await disponible()).apartado).toBeCloseTo(reservado - 14.4, 6);
     const dev = await q(`select importe from apartado_pagos where apartado_id=$1 and tipo='devolucion'`, [a.apartado_id]);
-    expect(Number(dev[0].importe)).toBe(1800);
+    expect(Number(dev[0].importe)).toBe(1700);
   });
 
-  it("avisa cuando un apartado lleva 30 días o más abierto", async () => {
+  it("al cancelar, lo no retenido puede quedar como saldo a favor del cliente", async () => {
+    const a = await rpc(s.cajeroA, "crear_apartado", apartado([{ forma: "efectivo", importe: 1000 }]));
+    const antes = Number((await q(`select saldo_a_favor from clientes where id=$1`, [s.cliente]))[0].saldo_a_favor);
+    await rpc(s.admin, "cancelar_apartado", { apartado_id: a.apartado_id, motivo: "Cambia de modelo", retener: 0, destino: "saldo_favor" });
+    expect(Number((await q(`select saldo_a_favor from clientes where id=$1`, [s.cliente]))[0].saldo_a_favor)).toBe(antes + 1000);
+    expect((await q(`select count(*)::int n from apartado_pagos where apartado_id=$1 and tipo='devolucion'`, [a.apartado_id]))[0].n).toBe(0);
+  });
+
+  it("remisión sin IVA y concepto genérico con nombre libre", async () => {
+    const cvg = (await q(`select p.id, u.id unidad from productos p join unidades_venta u on u.producto_id = p.id where p.sku = 'CVG'`))[0];
+    const a = await rpc(s.cajeroA, "crear_apartado", apartado([], { partidas: [
+      { producto_id: s.piso.id, unidad_venta_id: s.piso.caja, cantidad: 1, precio_unitario: 360, comentario: "Tono claro" },
+      { producto_id: cvg.id, unidad_venta_id: cvg.unidad, cantidad: 1, precio_unitario: 150, descripcion: "Corte especial" }] }));
+    expect(Number(a.total)).toBe(510);
+    const pp = await q(`select descripcion, comentario, iva_tasa::text from apartado_partidas where apartado_id=$1 order by renglon`, [a.apartado_id]);
+    expect(pp).toEqual([{ descripcion: null, comentario: "Tono claro", iva_tasa: "0.0000" }, { descripcion: "Corte especial", comentario: null, iva_tasa: "0.0000" }]);
+    await rpc(s.admin, "cancelar_apartado", { apartado_id: a.apartado_id, motivo: "Prueba" });
+  });
+
+  it("apartado sin anticipo: se liquida pagando todo al venderlo", async () => {
+    const a = await rpc(s.cajeroA, "crear_apartado", apartado([], { partidas: [{ producto_id: s.piso.id, unidad_venta_id: s.piso.caja, cantidad: 1, precio_unitario: 360 }] }));
+    const v = await rpc(s.cajeroA, "confirmar_venta", {
+      idempotency_key: key(), sucursal_id: s.sucA, almacen_id: s.almA, cliente_id: s.cliente, apartado_id: a.apartado_id,
+      partidas: [{ producto_id: s.piso.id, unidad_venta_id: s.piso.caja, cantidad: 1, precio_unitario: 360 }], pagos: [{ forma: "efectivo", importe: 360 }],
+    });
+    expect((await q(`select estado, venta_id from apartados where id=$1`, [a.apartado_id]))[0]).toEqual({ estado: "liquidado", venta_id: v.venta_id });
+  });
+
+  it("avisa cuando un apartado lleva 15 días o más abierto", async () => {
     const a = await rpc(s.cajeroA, "crear_apartado", apartado([{ forma: "efectivo", importe: 1080 }]));
+    await q(`update apartados set fecha = now() - interval '14 days' where id=$1`, [a.apartado_id]);
     expect((await q(`select requiere_aviso from v_apartados where id=$1`, [a.apartado_id]))[0].requiere_aviso).toBe(false);
-    await q(`update apartados set fecha = now() - interval '31 days' where id=$1`, [a.apartado_id]);
+    await q(`update apartados set fecha = now() - interval '15 days' where id=$1`, [a.apartado_id]);
     expect((await q(`select requiere_aviso from v_apartados where id=$1`, [a.apartado_id]))[0].requiere_aviso).toBe(true);
   });
 });

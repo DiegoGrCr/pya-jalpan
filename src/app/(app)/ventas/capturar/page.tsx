@@ -46,6 +46,10 @@ interface Captura {
   cotizacion?: { id?: string; folio?: string; vigencia: string; prospecto?: string };
   /** Venta que sale de una cotización (respeta sus precios y la marca como convertida) */
   desdeCotizacion?: { id: string; folio: string };
+  /** Modo apartado: reserva el material (no lo descuenta); los pagos son el anticipo (puede ser 0) */
+  apartar?: boolean;
+  /** Liquidar un apartado: se convierte en venta con sus precios; lo abonado se aplica como anticipo */
+  liquidar?: { id: string; folio: string; abonado: string };
 }
 interface DetalleProducto { producto: ProductoVenta; filas: { almacen: string; cantidad: number; apartado: number }[] | null }
 const CLIENTE_COLS = "id, nombre, rfc, es_publico_general, lista_precios_id, limite_credito, dias_credito, bloqueado";
@@ -134,12 +138,16 @@ export default function CapturarVenta() {
         // Cotizaciones: nueva (?cotizar=1), editar (?cotizacion=id) o vender desde una (?desde_cotizacion=id)
         const s0c = sucs[0]?.id ?? "", a0c = sucs[0]?.almacen_predeterminado_id ?? ((alm.data ?? []) as Almacen[]).find((a) => a.sucursal_id === s0c)?.id ?? "";
         if (qs.get("cotizar")) { setC({ ...capturaNueva(s0c, a0c, pub.data as Cliente), cotizacion: { vigencia: masDias(15) } }); return; }
+        // Apartados: nuevo (?apartar=1) o liquidar uno (?liquidar=id)
+        if (qs.get("apartar")) { setC({ ...capturaNueva(s0c, a0c, null), apartar: true }); return; }
+        const liqId = qs.get("liquidar");
+        if (liqId) { await cargarApartadoCaptura(liqId, lp.data?.id ?? null); return; }
         const cotId = qs.get("cotizacion") || qs.get("desde_cotizacion") || qs.get("copiar_cotizacion");
         const modoCot = qs.get("desde_cotizacion") ? "vender" : qs.get("copiar_cotizacion") ? "copiar" : "editar";
         if (cotId) { await cargarCotizacionCaptura(cotId, lp.data?.id ?? null, modoCot, pub.data as Cliente); return; }
         let guardada: Captura | null = null;
         try { const s = localStorage.getItem(CLAVE_LOCAL); if (s) guardada = JSON.parse(s); } catch { /* sin almacenamiento */ }
-        if (guardada?.edicion || guardada?.cotizacion || guardada?.desdeCotizacion) guardada = null;
+        if (guardada?.edicion || guardada?.cotizacion || guardada?.desdeCotizacion || guardada?.apartar || guardada?.liquidar) guardada = null;
         if (guardada && guardada.lineas.length) setC(guardada);
         else {
           const s0 = sucs[0]?.id ?? "";
@@ -151,7 +159,7 @@ export default function CapturarVenta() {
   }, []);
 
   // La captura se conserva en este equipo hasta guardarla (por si se va la conexión); la edición no
-  useEffect(() => { if (c.edicion || c.cotizacion || c.desdeCotizacion) return; try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(c)); } catch { /* ignorar */ } }, [c]);
+  useEffect(() => { if (c.edicion || c.cotizacion || c.desdeCotizacion || c.apartar || c.liquidar) return; try { localStorage.setItem(CLAVE_LOCAL, JSON.stringify(c)); } catch { /* ignorar */ } }, [c]);
 
   /** Carga una cotización para editarla, o para venderla (desde=true) con sus precios. */
   async function cargarCotizacionCaptura(id: string, listaId: string | null, modo: "editar" | "vender" | "copiar", publicoGeneral: Cliente) {
@@ -186,6 +194,35 @@ export default function CapturarVenta() {
         : modo === "copiar" ? { cotizacion: { vigencia: masDias(15), prospecto: q.prospecto ?? "" } }
         : { cotizacion: { id: q.id, folio, vigencia: q.vigencia, prospecto: q.prospecto ?? "" } }) });
     cargarExistencias([...new Set(lineas.map((l) => l.producto.id))], q.almacen_id);
+  }
+
+  /** Carga un apartado abierto para liquidarlo (convertirlo en venta con sus precios congelados). */
+  async function cargarApartadoCaptura(id: string, listaId: string | null) {
+    const { data, error } = await supabase().from("apartados").select(`id, serie, folio, sucursal_id, almacen_id, estado, abonado, comentarios, sin_iva,
+      clientes(${CLIENTE_COLS}),
+      apartado_partidas(renglon, unidad_venta_id, cantidad, precio_unitario, descuento, comentario, descripcion,
+        productos(id, sku, nombre, unidad_base, permite_fraccion, iva_tasa, ieps_tasa, tipo, imagen_url, presentacion, m2_por_caja, piezas_por_caja, formato, nombre_libre, precio_libre,
+          unidades_venta(id, nombre, factor, es_base, orden, precios(precio, lista_id))))`).eq("id", id).maybeSingle();
+    if (error) {
+      if (/sin_iva|comentario|descripcion/.test(error.message)) throw new Error("Falta ejecutar la migración 20261123000052_apartados_reglas.sql en Supabase.");
+      throw error;
+    }
+    if (!data) throw new Error("No se encontró el apartado o no tienes acceso a su sucursal.");
+    const a = data as unknown as { id: string; serie: string; folio: number; sucursal_id: string; almacen_id: string; estado: string; abonado: string;
+      comentarios: string | null; sin_iva: boolean; clientes: Cliente;
+      apartado_partidas: { renglon: number; unidad_venta_id: string; cantidad: string; precio_unitario: string; descuento: string; comentario: string | null; descripcion: string | null; productos: FilaProducto }[] };
+    if (a.estado !== "abierto") throw new Error(`Este apartado ya está ${a.estado}.`);
+    const lineas: Linea[] = [...a.apartado_partidas].sort((x, y) => x.renglon - y.renglon).map((ap) => {
+      const { unidades_venta, ...prod } = ap.productos;
+      const producto: ProductoVenta = { ...prod, unidades: [...unidades_venta].sort((x, y) => x.orden - y.orden)
+        .map((u) => ({ ...u, precio: u.precios?.find((x) => x.lista_id === listaId)?.precio ?? null })) };
+      return { uid: crypto.randomUUID(), producto, unidadId: ap.unidad_venta_id, cantidad: String(Number(ap.cantidad)), precio: String(Number(ap.precio_unitario)),
+        descuento: "0", entregarAhora: true, comentario: ap.comentario ?? "", descripcion: ap.descripcion ?? "",
+        descTipo: "$", descValor: Number(ap.descuento) > 0 ? String(Number(ap.descuento)) : "", verDesc: Number(ap.descuento) > 0 };
+    });
+    setC({ ...capturaNueva(a.sucursal_id, a.almacen_id, a.clientes), lineas, comentarios: a.comentarios ?? "", sinIva: a.sin_iva !== false,
+      liquidar: { id: a.id, folio: `${a.serie} ${a.folio}`, abonado: String(a.abonado) } });
+    cargarExistencias([...new Set(lineas.map((l) => l.producto.id))], a.almacen_id);
   }
 
   /** Carga una venta guardada para editarla en esta misma pantalla. */
@@ -425,9 +462,11 @@ export default function CapturarVenta() {
   const subtotal = suma("subtotal"), iva = suma("iva"), total = suma("total");
   const descuento = descuentos.porRenglon.reduce((s, d) => s.plus(d), new Decimal(0));
   // Contado con un solo pago sin importe: se cobra el total completo con esa forma de pago
-  const pagoAutomatico = c.tipo === "contado" && c.pagos.length === 1 && !c.pagos[0].importe;
-  const pagosAplicados = pagoAutomatico ? [{ ...c.pagos[0], importe: total.toFixed(2) }] : c.pagos;
-  const pagado = pagosAplicados.reduce((s, p) => s.plus(p.importe || 0), new Decimal(0));
+  // Al liquidar un apartado, lo ya abonado cuenta como pago (forma "anticipo")
+  const anticipo = c.liquidar ? dec(c.liquidar.abonado) : new Decimal(0);
+  const pagoAutomatico = c.tipo === "contado" && !c.apartar && c.pagos.length === 1 && !c.pagos[0].importe;
+  const pagosAplicados = pagoAutomatico ? [{ ...c.pagos[0], importe: Decimal.max(total.minus(anticipo), 0).toFixed(2) }] : c.pagos;
+  const pagado = pagosAplicados.reduce((s, p) => s.plus(p.importe || 0), new Decimal(0)).plus(anticipo);
   const cambio = Decimal.max(pagado.minus(total), 0);
   const faltaPagar = Decimal.max(total.minus(pagado), 0);
   const invalidas = c.lineas.filter((l) => !cantidadValida(l.cantidad || 0, l.producto.permite_fraccion, l.producto.unidades.find((x) => x.id === l.unidadId)?.factor ?? 1));
@@ -442,13 +481,18 @@ export default function CapturarVenta() {
   c.lineas.forEach((l, i) => { if (descuentos.propios[i].gt(descuentos.brutos[i])) motivos.push(`${l.producto.nombre}: el descuento es mayor al importe.`); });
   c.lineas.forEach((l) => { if (l.entregada && dec(l.cantidad).lt(dec(l.entregada))) motivos.push(`${l.producto.nombre}: no puedes dejar menos de lo ya entregado (${fmtCantidad(l.entregada)}).`); });
   if (c.cotizacion && !c.cotizacion.vigencia) motivos.push("Indica la vigencia de la cotización.");
+  if (c.apartar) {
+    if (!c.cliente || c.cliente.es_publico_general) motivos.push("El apartado requiere un cliente registrado: elígelo o dalo de alta (+ Nuevo).");
+    if (c.lineas.length && pagado.gte(total)) motivos.push("El anticipo cubre el total: mejor regístralo como venta.");
+    if (c.pagos.some((x) => x.forma === "saldo_favor" && Number(x.importe) > 0)) motivos.push("El anticipo no se paga con saldo a favor.");
+  }
   if (!c.edicion && !c.cotizacion) {
     for (const l of c.lineas) if (l.producto.nombre_libre && !l.descripcion?.trim()) motivos.push(`${l.producto.sku}: escribe el nombre del concepto.`);
     for (const l of c.lineas) if (l.producto.precio_libre && !(Number(l.precio) >= 0 && l.precio !== "")) motivos.push(`${l.producto.sku}: escribe el precio.`);
     if (c.tipo === "credito" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("La venta a crédito requiere un cliente registrado.");
     if (c.tipo === "abono" && (!c.cliente || c.cliente.es_publico_general)) motivos.push("Para dejar saldo pendiente elige o da de alta al cliente (+ Nuevo).");
     if (c.tipo === "abono" && pagado.gt(total)) motivos.push("El abono es mayor al total de la venta.");
-    if (c.tipo === "contado" && c.lineas.length && pagado.lt(total)) motivos.push(`El pago no cubre el total: faltan ${fmtImporte(faltaPagar)}.`);
+    if (c.tipo === "contado" && !c.apartar && c.lineas.length && pagado.lt(total)) motivos.push(`El pago no cubre el total: faltan ${fmtImporte(faltaPagar)}.`);
     const usoFavor = c.pagos.filter((x) => x.forma === "saldo_favor").reduce((a, x) => a.plus(dec(x.importe)), new Decimal(0));
     if (usoFavor.gt(saldoFavor)) motivos.push(`El cliente solo tiene ${fmtImporte(saldoFavor)} de saldo a favor.`);
   }
@@ -513,23 +557,45 @@ export default function CapturarVenta() {
     } finally { setGuardando(false); }
   };
 
+  const guardarApartado = async () => {
+    if (!c.apartar || !puedeGuardar) return;
+    setGuardando(true); setMsg(null);
+    try {
+      const { data, error } = await supabase().rpc("crear_apartado", { p: {
+        idempotency_key: c.clave, sucursal_id: c.sucursalId, almacen_id: c.almacenId, lista_id: lista?.id, cliente_id: c.cliente?.id ?? null,
+        comentarios: c.comentarios || null, sin_iva: sinIva,
+        partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad, precio_unitario: l.precio,
+          descuento: descuentos.porRenglon[i].toFixed(2), comentario: l.comentario?.trim() || null,
+          descripcion: l.producto.nombre_libre ? l.descripcion?.trim() || null : null })),
+        pagos: c.pagos.filter((x) => Number(x.importe) > 0).map((x) => ({ forma: x.forma, importe: x.importe, referencia: x.referencia || null })),
+      } });
+      if (error) throw error;
+      router.push(`/ventas/apartados/${data.apartado_id}?nuevo=1`);
+    } catch (e) {
+      setMsg({ tipo: "error", texto: mensajeError(e) });
+      setC((v) => ({ ...v, clave: crypto.randomUUID() }));
+    } finally { setGuardando(false); }
+  };
+
   const guardar = async () => {
     if (c.edicion) return guardarEdicion();
     if (c.cotizacion) return guardarCotizacion();
+    if (c.apartar) return guardarApartado();
     if (!puedeGuardar) return;
     setGuardando(true); setMsg(null);
     try {
       const { data, error } = await supabase().rpc("confirmar_venta", { p: {
         idempotency_key: c.clave, sucursal_id: c.sucursalId, almacen_id: c.almacenId, lista_id: lista?.id,
         cliente_id: c.cliente?.id ?? null, tipo: c.tipo === "abono" ? "contado" : c.tipo, pago_pendiente: c.tipo === "abono", comentarios: c.comentarios || null, sin_iva: sinIva,
-        orden_compra: c.ordenCompra?.trim() || null, cotizacion_id: c.desdeCotizacion?.id ?? null,
+        orden_compra: c.ordenCompra?.trim() || null, cotizacion_id: c.desdeCotizacion?.id ?? null, apartado_id: c.liquidar?.id ?? null,
         ...(c.cambioAFavor && cambio.gt(0) && c.cliente && !c.cliente.es_publico_general ? { cambio_a_favor: true } : {}),
         partidas: c.lineas.map((l, i) => ({ producto_id: l.producto.id, unidad_venta_id: l.unidadId, cantidad: l.cantidad,
           precio_unitario: l.precio, descuento: descuentos.porRenglon[i].toFixed(2), entregar_ahora: l.producto.tipo === "servicio" || l.entregarAhora,
           descripcion: l.producto.nombre_libre ? l.descripcion?.trim() || null : null,
           ...(l.almacenId && l.almacenId !== c.almacenId ? { almacen_id: l.almacenId } : {}),
           comentario: l.comentario?.trim() || null })),
-        pagos: pagosAplicados.filter((p) => Number(p.importe) > 0).map((p) => ({ forma: p.forma, importe: p.importe, referencia: p.referencia || null })),
+        pagos: [...(c.liquidar && anticipo.gt(0) ? [{ forma: "anticipo", importe: anticipo.toFixed(2), referencia: `Apartado ${c.liquidar.folio}` }] : []),
+          ...pagosAplicados.filter((p) => Number(p.importe) > 0).map((p) => ({ forma: p.forma, importe: p.importe, referencia: p.referencia || null }))],
       } });
       if (error) throw error;
       // Captura limpia para la siguiente venta y se abre el documento con sus acciones (imprimir, PDF, enviar…)
@@ -575,6 +641,18 @@ export default function CapturarVenta() {
           {c.cotizacion.id ? <>Editando la cotización <b>{c.cotizacion.folio}</b>.</> : <><b>Nueva cotización.</b></>} No mueve inventario ni lleva pagos; después se puede convertir en venta.
         </div>
       )}
+      {c.apartar && (
+        <div className="mb-3 rounded px-4 py-2 bg-amber-50 text-amber-900 border border-amber-200 text-sm">
+          <b>Nuevo apartado.</b> El material queda reservado (no sale del inventario) con el precio de hoy. El anticipo es opcional.
+          <button className="underline ml-2" onClick={() => setC((v) => ({ ...v, apartar: false }))}>Mejor registrar como venta</button>
+        </div>
+      )}
+      {c.liquidar && (
+        <div className="mb-3 rounded px-4 py-2 bg-amber-50 text-amber-900 border border-amber-200 text-sm">
+          Liquidando el apartado <b>{c.liquidar.folio}</b>: se respetan sus precios y lo abonado (<b>{fmtImporte(anticipo)}</b>) se aplica como anticipo.
+          Al guardar se convierte en venta y el material sale del inventario.
+        </div>
+      )}
       {c.desdeCotizacion && (
         <div className="mb-3 rounded px-4 py-2 bg-sky-50 text-sky-900 border border-sky-200 text-sm">
           Venta desde la cotización <b>{c.desdeCotizacion.folio}</b>: se respetan sus precios y al guardar la cotización queda como convertida.
@@ -607,7 +685,7 @@ export default function CapturarVenta() {
           <div className="relative w-full md:w-80 shrink-0">
             {c.cliente && !cambiarCliente && !nuevoCliente ? (
               // Tarjeta del cliente elegido; al pasar el puntero aparece "Editar" para cambiarlo
-              <button type="button" disabled={!!c.edicion} title={c.edicion ? "El cliente no se cambia al editar" : "Cambiar cliente"}
+              <button type="button" disabled={!!c.edicion || !!c.liquidar} title={c.edicion ? "El cliente no se cambia al editar" : c.liquidar ? "Es el cliente del apartado" : "Cambiar cliente"}
                 onClick={() => { setCambiarCliente(true); setTextoCliente(""); }}
                 className="group relative w-full text-left text-sm rounded px-3 py-2 border border-transparent hover:border-dashed hover:border-[var(--borde)] disabled:cursor-default">
                 <div><span className="font-semibold">Nombre:</span> {c.cliente.nombre}</div>
@@ -661,7 +739,7 @@ export default function CapturarVenta() {
 
         <div className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-5 text-sm">
           <label>Sucursal:
-            <select className="campo" value={c.sucursalId} disabled={!!c.edicion} onChange={(e) => {
+            <select className="campo" value={c.sucursalId} disabled={!!c.edicion || !!c.liquidar} onChange={(e) => {
               const a = sucursales.find((x) => x.id === e.target.value)?.almacen_predeterminado_id ?? almacenes.find((x) => x.sucursal_id === e.target.value)?.id ?? "";
               setC((v) => ({ ...v, sucursalId: e.target.value, almacenId: a }));
             }}>
@@ -669,7 +747,7 @@ export default function CapturarVenta() {
             </select>
           </label>
           <label>Almacén:
-            <select className="campo" value={c.almacenId} disabled={!!c.edicion} onChange={(e) => setC((v) => ({ ...v, almacenId: e.target.value }))}>
+            <select className="campo" value={c.almacenId} disabled={!!c.edicion || !!c.liquidar} onChange={(e) => setC((v) => ({ ...v, almacenId: e.target.value }))}>
               {almacenesSucursal.map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
             </select>
           </label>
@@ -684,7 +762,7 @@ export default function CapturarVenta() {
           </label>
           </> : <>
           <label>Tipo de venta:
-            <select className="campo" value={c.tipo} disabled={!!c.edicion} onChange={(e) => setC((v) => ({ ...v, tipo: e.target.value as Captura["tipo"] }))}>
+            <select className="campo" value={c.tipo} disabled={!!c.edicion || !!c.apartar || !!c.liquidar} onChange={(e) => setC((v) => ({ ...v, tipo: e.target.value as Captura["tipo"] }))}>
               {(["contado", "abono", "credito"] as const).map((k) => <option key={k} value={k}>{TIPO_VENTA[k].largo}</option>)}
             </select>
           </label>
@@ -753,7 +831,7 @@ export default function CapturarVenta() {
                       }}>
                         {l.producto.unidades.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
                       </select>
-                      {l.producto.tipo === "producto" && !c.cotizacion && (
+                      {l.producto.tipo === "producto" && !c.cotizacion && !c.apartar && !c.liquidar && (
                         <label className="block mt-1 text-xs text-[var(--tenue)]" title="Bodega de donde sale este producto">Sale de
                           <select className={`campo !py-0.5 text-xs ${almL !== c.almacenId ? "!border-[var(--acento)] font-semibold" : ""}`} value={almL}
                             disabled={Number(l.entregada) > 0}
@@ -827,7 +905,7 @@ export default function CapturarVenta() {
                           {/* globo de comentario */}
                           <path d="M4 5h16v11H9l-5 4V5Z" />
                         </BotonIcono>
-                        {!c.cotizacion && <label title="Se entrega ahora (desmarca si se entrega después)" className="flex items-center gap-1 text-xs mx-1 cursor-pointer">
+                        {!c.cotizacion && !c.apartar && <label title="Se entrega ahora (desmarca si se entrega después)" className="flex items-center gap-1 text-xs mx-1 cursor-pointer">
                           <input type="checkbox" checked={l.entregarAhora} onChange={(e) => editar(l.uid, { entregarAhora: e.target.checked })} /> Ent.
                         </label>}
                         <button aria-label="Quitar partida" title={Number(l.entregada) > 0 ? "No se puede quitar: ya se entregó material" : "Quitar partida"}
@@ -881,7 +959,7 @@ export default function CapturarVenta() {
         </div>
 
         {/* Pagos y totales */}
-        <div className="barra-seccion mt-6">{c.cotizacion ? "Comentarios y totales" : "Pagos"}</div>
+        <div className="barra-seccion mt-6">{c.cotizacion ? "Comentarios y totales" : c.apartar ? "Anticipo (opcional)" : "Pagos"}</div>
         <div className="grid gap-6 lg:grid-cols-[1fr_280px] mt-3">
           <div className="flex flex-col gap-3 text-sm">
             {c.edicion && (
@@ -890,7 +968,13 @@ export default function CapturarVenta() {
                 Si baja de lo pagado, al guardar se pregunta si se devuelve o queda a favor.
               </div>
             )}
-            {!c.edicion && !c.cotizacion && saldoFavor > 0 && (
+            {c.liquidar && anticipo.gt(0) && (
+              <div className="rounded px-3 py-2 bg-amber-50 text-amber-900">Abonado en el apartado: <b>{fmtImporte(anticipo)}</b> (se aplica solo). Cobra aquí lo que falta.</div>
+            )}
+            {c.apartar && (
+              <div className="rounded px-3 py-2 bg-[var(--resalte)]">Si deja anticipo, captúralo aquí. Si se aparta a palabra, déjalo vacío.</div>
+            )}
+            {!c.edicion && !c.cotizacion && !c.apartar && saldoFavor > 0 && (
               <div className="rounded px-3 py-2 bg-emerald-50 text-emerald-900">
                 El cliente tiene <b>{fmtImporte(saldoFavor)}</b> de saldo a favor. Úsalo eligiendo la forma de pago “Saldo a favor”.
               </div>
@@ -898,9 +982,9 @@ export default function CapturarVenta() {
             {!c.edicion && !c.cotizacion && c.pagos.map((p, i) => (
               <div key={i} className="grid grid-cols-[1fr_120px] sm:grid-cols-[180px_140px_1fr_auto] gap-2 items-center">
                 <select className="campo" value={p.forma} onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, forma: e.target.value as Forma } : x)) }))}>
-                  {Object.entries(FORMAS).filter(([k]) => k !== "saldo_favor" || saldoFavor > 0 || p.forma === k).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+                  {Object.entries(FORMAS).filter(([k]) => k !== "saldo_favor" || ((saldoFavor > 0 && !c.apartar) || p.forma === k)).map(([k, t]) => <option key={k} value={k}>{t}</option>)}
                 </select>
-                <input className="campo" inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${fmtImporte(total)} (total)` : c.tipo === "abono" ? "Abono" : "Importe"} value={p.importe}
+                <input className="campo" inputMode="decimal" placeholder={pagoAutomatico && i === 0 ? `${fmtImporte(Decimal.max(total.minus(anticipo), 0))} (${c.liquidar ? "resto" : "total"})` : c.apartar ? "Anticipo (opcional)" : c.tipo === "abono" ? "Abono" : "Importe"} value={p.importe}
                   onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, importe: e.target.value } : x)) }))} />
                 <input className="campo col-span-2 sm:col-span-1" placeholder={p.forma === "efectivo" ? "Referencia (opcional)" : "Referencia / últimos 4 dígitos / autorización"} value={p.referencia}
                   onChange={(e) => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === i ? { ...x, referencia: e.target.value } : x)) }))} />
@@ -911,7 +995,7 @@ export default function CapturarVenta() {
             ))}
             {!c.edicion && !c.cotizacion && <div className="flex gap-4">
               <button className="underline" onClick={() => setC((v) => ({ ...v, pagos: [...v.pagos, { forma: "tarjeta_debito", importe: faltaPagar.gt(0) ? faltaPagar.toFixed(2) : "", referencia: "" }] }))}>+ Agregar forma de pago</button>
-              <button className="underline" onClick={() => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === 0 ? { ...x, importe: total.toFixed(2) } : x)) }))}>Pagar el total</button>
+              {!c.apartar && <button className="underline" onClick={() => setC((v) => ({ ...v, pagos: v.pagos.map((x, j) => (j === 0 ? { ...x, importe: Decimal.max(total.minus(anticipo), 0).toFixed(2) } : x)) }))}>Pagar el total</button>}
             </div>}
             <label className="mt-2">Comentarios
               <textarea className="campo h-20" value={c.comentarios} onChange={(e) => setC((v) => ({ ...v, comentarios: e.target.value }))} />
@@ -941,8 +1025,9 @@ export default function CapturarVenta() {
                   ? <><dt>Saldo pendiente:</dt><dd className="text-right font-semibold">{fmtImporte(total.minus(pagadoPrevio))}</dd></>
                   : <><dt>Pagado de más:</dt><dd className="text-right font-semibold text-amber-700">{fmtImporte(pagadoPrevio.minus(total))}</dd></>}
               </> : <>
-              <dt className="mt-2">Pagado:</dt><dd className="text-right mt-2">{fmtImporte(pagado)}</dd>
-              {c.tipo === "contado"
+              <dt className="mt-2">{c.apartar ? "Anticipo:" : "Pagado:"}</dt><dd className="text-right mt-2">{fmtImporte(pagado)}</dd>
+              {c.apartar ? <><dt>Saldo del apartado:</dt><dd className="text-right font-semibold">{fmtImporte(faltaPagar)}</dd></>
+              : c.tipo === "contado"
                 ? <><dt>Cambio:</dt><dd className="text-right font-semibold">{c.cambioAFavor && cambio.gt(0) ? <s className="text-[var(--tenue)]">{fmtImporte(cambio)}</s> : fmtImporte(cambio)}</dd>
                   {cambio.gt(0) && c.cliente && !c.cliente.es_publico_general && (
                     <dd className="col-span-2 text-right text-xs">
@@ -958,8 +1043,14 @@ export default function CapturarVenta() {
                 ? <button className="px-3 py-2 underline" onClick={() => router.push(`/ventas/cotizaciones/${c.cotizacion!.id}`)}>Cancelar edición</button>
                 : c.edicion
                 ? <button className="px-3 py-2 underline" onClick={() => router.push(`/ventas/${c.edicion!.ventaId}`)}>Cancelar edición</button>
+                : c.liquidar
+                ? <button className="px-3 py-2 underline" onClick={() => router.push(`/ventas/apartados/${c.liquidar!.id}`)}>Volver al apartado</button>
                 : <button className="px-3 py-2 underline" onClick={() => { if (window.confirm("¿Descartar esta captura?")) setC(capturaNueva(c.sucursalId, c.almacenId, publico)); }}>Descartar</button>}
-              <button className="btn-primario" title="F9" disabled={!puedeGuardar} onClick={guardar}>{guardando ? "Guardando…" : c.cotizacion ? (c.cotizacion.id ? "Guardar cambios" : "Guardar cotización") : c.edicion ? "Guardar cambios" : "Guardar"}</button>
+              {!c.edicion && !c.cotizacion && !c.liquidar && !c.apartar && c.lineas.length > 0 && (
+                <button className="px-3 py-2 rounded border border-amber-600 text-amber-800" title="Reservar el material sin venderlo todavía"
+                  onClick={() => setC((v) => ({ ...v, apartar: true, tipo: "contado" }))}>Apartar</button>
+              )}
+              <button className="btn-primario" title="F9" disabled={!puedeGuardar} onClick={guardar}>{guardando ? "Guardando…" : c.cotizacion ? (c.cotizacion.id ? "Guardar cambios" : "Guardar cotización") : c.edicion ? "Guardar cambios" : c.apartar ? "Guardar apartado" : c.liquidar ? "Liquidar y vender" : "Guardar"}</button>
             </div>
             {motivos.length > 0 && !guardando && (
               <ul className="text-xs text-[var(--peligro)] mt-2 text-right">
