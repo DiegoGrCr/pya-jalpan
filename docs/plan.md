@@ -75,12 +75,30 @@ costo_pendiente → ajustes_costo_venta          bitacora          sat_catalogo
 |---|---|
 | 1. Revisión de Bind y documento funcional | ✅ `referencia/inventario-funcional.md` |
 | 2. Plan y modelo de datos | ✅ este documento |
-| 3. Autenticación, sucursales y permisos | 🟡 BD + RLS listas; pantallas de inicio de sesión pendientes |
-| 4. Productos, unidades y clientes | 🟡 BD lista; pantallas e importación Excel pendientes |
-| 5. Inventarios y kardex | 🟡 BD lista (entradas, traspasos, ajustes); conteo físico y hoja de Google pendientes |
-| 6. Cotizaciones, POS y caja | 🟡 BD de cotización y venta lista; POS, caja y corte pendientes |
-| 7. Crédito, apartados y entregas | 🟡 Entregas listas; abonos y apartados pendientes |
-| 8–12 | ⏳ |
+| 3. Autenticación, sucursales y permisos | ✅ Usuarios, roles, sesión única por usuario, rol Contabilidad (solo consulta, 0053) |
+| 4. Productos, unidades y clientes | ✅ Catálogo, fotos, importación Excel, conceptos genéricos, crédito del cliente |
+| 5. Inventarios y kardex | 🟡 Existencias, kardex y recepción de mercancía listos; pantallas de traspasos, ajustes y conteo físico pendientes |
+| 6. Cotizaciones, POS y caja | ✅ Cotizaciones, captura, POS, corte de caja y gastos |
+| 7. Crédito, apartados y entregas | ✅ Crédito, abonos, apartados (0052), devoluciones (0051) y entregas |
+| 8–12 | ⏳ Ver «Pendientes para el final» |
+
+## 6. Pendientes para el final (decidido el 23-nov-2026)
+Se dejan al final, después de terminar la operación diaria:
+
+**Facturación electrónica (CFDI 4.0)**
+- PAC: la contadora usa hoy Blackinvoice; no se encontró que tenga API ni se confirmó que sea PAC autorizado. Propuesta: un PAC con API y ambiente de pruebas (p. ej. Facturapi). Pendiente: que la contadora lo apruebe y crear la cuenta de pruebas.
+- El CSD lo sube la contadora directo con el PAC (nunca pasa por el sistema); la llave de la API solo en variables de entorno (Vercel). Primero modo de pruebas; producción solo con autorización.
+- Objetivo «lo menos batalloso posible»:
+  1. Facturar con un clic desde la nota cuando el cliente tiene RFC (datos ya puestos).
+  2. Factura global automática de Público en general; frecuencia (diaria / semanal / mensual) configurable, la define la contadora.
+  3. Complementos de pago automáticos al cobrar una venta PPD facturada.
+  4. Más adelante: portal de autofacturación con el folio de la nota.
+- Mientras tanto se puede seguir usando Blackinvoice; cada venta se factura en un solo lado.
+
+**Herramientas para la contadora** (rol Contabilidad ya creado)
+- Resumen contable mensual por sucursal (ventas con subtotal/IVA/total, por forma de pago, devoluciones, gastos por categoría, cortes), en pantalla y Excel.
+- Ventas facturadas contra no facturadas (qué va a la global y qué falta).
+- Descarga en .zip de los XML y PDF del mes.
 
 ## 5. Supuestos abiertos
 Ver preguntas P3–P50 en `referencia/inventario-funcional.md`. Las que más afectan lo construido: **P39** (decimales), **P42** (cobro inmediato), **P43** (IVA en precios), **P44** (usuarios por persona), **P47–P50** (hoja de Google y su enlace).
