@@ -147,7 +147,7 @@ export default function Usuarios() {
             </select>
           </label>
           <div className="sm:col-span-2 lg:col-span-4">
-            <div className="mb-1">Sucursales donde puede trabajar{form.rol === "administrador" ? " (el administrador ve todas)" : ""}</div>
+            <div className="mb-1">Sucursales donde puede trabajar{form.rol === "administrador" ? " (el administrador ve todas)" : form.rol === "facturacion" ? " (no hace falta: Contabilidad ve todas y no puede vender ni modificar)" : ""}</div>
             {casillas(form.sucursales, (v) => setForm({ ...form, sucursales: v }))}
           </div>
           <div className="sm:col-span-2 lg:col-span-4 flex justify-end">

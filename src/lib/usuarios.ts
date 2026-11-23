@@ -6,7 +6,7 @@ export const ROLES = {
   gerente: "Gerente de sucursal",
   cajero: "Vendedor / cajero",
   almacenista: "Almacenista",
-  facturacion: "Facturación",
+  facturacion: "Contabilidad / Facturación (solo consulta)",
 } as const;
 export type Rol = keyof typeof ROLES;
 

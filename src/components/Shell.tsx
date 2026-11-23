@@ -58,6 +58,9 @@ export const MENU: Grupo[] = [
   ] },
 ];
 
+/** Pantallas solo para operar (vender); no se muestran a Contabilidad / Facturación */
+const SOLO_OPERACION = ["/ventas/capturar", "/pos"];
+
 /** Texto de la ruta para el breadcrumb: "Ventas › Capturar venta" */
 export function rutaDe(path: string): string[] {
   for (const g of MENU) {
@@ -72,6 +75,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname();
   const router = useRouter();
   const [usuario, setUsuario] = useState<string>("");
+  // Contabilidad / Facturación: solo consulta (0053), sin opciones para vender
+  const [soloConsulta, setSoloConsulta] = useState(false);
   const [abierto, setAbierto] = useState<string | null>(() => rutaDe(path)[0] ?? null);
   const [menuMovil, setMenuMovil] = useState(false);
 
@@ -80,8 +85,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       const sb = supabase();
       const { data: { user } } = await sb.auth.getUser();
       if (!user) return;
-      const { data } = await sb.from("perfiles").select("nombre").eq("user_id", user.id).maybeSingle();
+      const { data } = await sb.from("perfiles").select("nombre, rol").eq("user_id", user.id).maybeSingle();
       setUsuario(data?.nombre ?? user.email ?? "");
+      setSoloConsulta(data?.rol === "facturacion");
       // Color de interfaz del usuario (0036); si falta la migración se queda el normal
       const tema = await sb.from("perfiles").select("tema").eq("user_id", user.id).maybeSingle();
       if (!tema.error) aplicarTema((tema.data as { tema: string | null } | null)?.tema);
@@ -124,7 +130,9 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         <button className="sm:hidden text-xl" onClick={() => setMenuMovil((v) => !v)} aria-label="Menú">☰</button>
         <Link href="/" className="font-semibold tracking-wide">[NOMBRE]</Link>
         <span className="flex-1 truncate text-lg">{usuario}</span>
-        <Link href="/ventas/capturar" title="Capturar venta" className="text-xl">＋</Link>
+        {soloConsulta
+          ? <span className="text-xs px-2 py-0.5 rounded bg-white/20" title="Tu usuario puede ver todo, pero no vender ni modificar">Solo consulta</span>
+          : <Link href="/ventas/capturar" title="Capturar venta" className="text-xl">＋</Link>}
         <button onClick={salir} title="Cerrar sesión"
           className="w-8 h-8 rounded-full grid place-items-center text-sm font-semibold" style={{ background: "var(--acento)" }}>
           {iniciales || "?"}
@@ -159,7 +167,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
                 )}
                 {g.items && abierto === g.texto && (
                   <div style={{ background: "#e9edf1", color: "var(--texto)" }}>
-                    {g.items.map((it) => (
+                    {g.items.filter((it) => !soloConsulta || !SOLO_OPERACION.includes(it.href)).map((it) => (
                       <Link key={it.href} href={it.href}
                         className={`block pl-9 pr-3 py-2 hover:bg-white ${path.startsWith(it.href) ? "font-semibold bg-white" : ""}`}>
                         » {it.texto}

@@ -33,7 +33,11 @@ export default function Login() {
       const s = await iniciarSesionUnica().catch(async (e) => { await salirLocal(); throw e; });
       if (s.estado === "ocupada") { await salirLocal(); setError(mensajeOcupada(s)); return; }
       const volver = new URLSearchParams(window.location.search).get("volver");
-      router.replace(volver && volver.startsWith("/") && !volver.startsWith("//") ? volver : "/pos");
+      // Contabilidad / Facturación entra al tablero (no vende); los demás, al punto de venta
+      const { data: { user } } = await supabase().auth.getUser();
+      const { data: perfil } = await supabase().from("perfiles").select("rol").eq("user_id", user?.id ?? "").maybeSingle();
+      const inicio = (perfil as { rol?: string } | null)?.rol === "facturacion" ? "/" : "/pos";
+      router.replace(volver && volver.startsWith("/") && !volver.startsWith("//") ? volver : inicio);
       router.refresh();
     } catch (err) {
       const m = mensajeError(err);
