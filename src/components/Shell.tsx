@@ -9,6 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { aplicarTema } from "@/lib/temas";
 import { supabase } from "@/lib/supabase/client";
+import { NOMBRE_SISTEMA } from "@/lib/marca";
 import { LATIDO_MS, dejarSesion, latirSesion, salirLocal } from "@/lib/sesion";
 
 interface Item { texto: string; href: string }
@@ -130,7 +131,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     <div className="min-h-screen flex flex-col">
       <header className="h-12 flex items-center gap-3 px-3 text-white" style={{ background: "var(--barra)" }}>
         <button className="sm:hidden text-xl" onClick={() => setMenuMovil((v) => !v)} aria-label="Menú">☰</button>
-        <Link href="/" className="font-semibold tracking-wide">[NOMBRE]</Link>
+        <Link href="/" className="font-semibold tracking-wide flex items-center gap-2">
+          <img src="/logo-cubo.svg" alt="" width={22} height={24} className="shrink-0" />{NOMBRE_SISTEMA}</Link>
         <span className="flex-1 truncate text-lg">{usuario}</span>
         {soloConsulta
           ? <span className="text-xs px-2 py-0.5 rounded bg-white/20" title="Tu usuario puede ver todo, pero no vender ni modificar">Solo consulta</span>

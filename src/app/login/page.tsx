@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase, mensajeError } from "@/lib/supabase/client";
 import { correoDeUsuario } from "@/lib/usuarios";
+import { NOMBRE_SISTEMA } from "@/lib/marca";
 import { iniciarSesionUnica, mensajeOcupada, salirLocal } from "@/lib/sesion";
 
 /** Avisos al regresar al login porque la sesión se cerró desde otro lado */
@@ -48,6 +49,10 @@ export default function Login() {
   return (
     <main className="min-h-screen grid place-items-center bg-[var(--fondo)] text-[var(--texto)] p-4">
       <form onSubmit={entrar} className="w-full max-w-sm bg-[var(--panel)] rounded-lg p-6 flex flex-col gap-3 shadow">
+        <div className="flex flex-col items-center gap-2 mb-2">
+          <img src="/logo.svg" alt="" width={72} height={72} />
+          <div className="text-lg font-semibold tracking-wide">{NOMBRE_SISTEMA}</div>
+        </div>
         <h1 className="text-xl font-semibold">Iniciar sesión</h1>
         <label className="flex flex-col gap-1 text-sm">Usuario o correo
           <input type="text" required autoCapitalize="none" spellCheck={false} autoComplete="username" value={correo} onChange={(e) => setCorreo(e.target.value)} className="border rounded px-3 py-2 bg-[var(--panel)]" />

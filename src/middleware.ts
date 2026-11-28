@@ -4,7 +4,8 @@ import { type NextRequest, NextResponse } from "next/server";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const key = (process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)!;
 
-const PUBLICAS = ["/login"];
+// Inicio de sesión y archivos de la PWA (manifiesto, service worker, página sin conexión, íconos)
+const PUBLICAS = ["/login", "/manifest.webmanifest", "/sw.js", "/offline.html", "/icons/", "/icon.svg", "/apple-icon.png"];
 
 /** Refresca la sesión en cada petición y envía a /login a quien no la tenga. */
 export async function middleware(request: NextRequest) {
@@ -33,5 +34,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|offline.html|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };

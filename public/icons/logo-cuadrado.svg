@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Logotipo">
+  <defs>
+    <linearGradient id="fondo" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#119284"/>
+      <stop offset="1" stop-color="#0b2f2c"/>
+    </linearGradient>
+    <!-- Cortes entre las caras: tres módulos que encajan -->
+    <mask id="cortes">
+      <rect width="512" height="512" fill="#fff"/>
+      <path d="M256 262 L126 187 M256 262 L386 187 M256 262 L256 420" stroke="#000" stroke-width="18" stroke-linecap="round"/>
+    </mask>
+  </defs>
+  <rect width="512" height="512" fill="url(#fondo)"/>
+  <g mask="url(#cortes)" transform="translate(256 262) scale(0.78) translate(-256 -262)">
+    <path d="M256 104 L393 183 L256 262 L119 183 Z" fill="#ccfbf1"/>
+    <path d="M119 183 L256 262 L256 420 L119 341 Z" fill="#ffffff"/>
+    <path d="M256 262 L393 183 L393 341 L256 420 Z" fill="#2dd4bf"/>
+  </g>
+</svg>
