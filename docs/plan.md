@@ -1,4 +1,4 @@
-# [NOMBRE] — Plan, modelo de datos y decisiones (Fase 2)
+# Triedro — Plan, modelo de datos y decisiones (Fase 2)
 
 **Fecha:** 12-nov-2026 · **Estado:** decisiones provisionales. Por indicación del usuario ("hazlo completo") se avanzó con las recomendaciones del inventario funcional. Cada decisión marcada **[PROV]** se puede revertir.
 
@@ -101,3 +101,9 @@ Se dejan al final, después de terminar la operación diaria:
 
 ## 5. Supuestos abiertos
 Ver preguntas P3–P50 en `referencia/inventario-funcional.md`. Las que más afectan lo construido: **P39** (decimales), **P42** (cobro inmediato), **P43** (IVA en precios), **P44** (usuarios por persona), **P47–P50** (hoja de Google y su enlace).
+
+## 7. Marca (27-nov-2026)
+- Nombre: **Triedro** — figura de tres planos que se unen en un vértice, igual que el logotipo (cubo de tres caras: inventario, ventas y finanzas en un solo sistema). Independiente del giro de la empresa.
+- Revisión: no se encontró otro software o empresa con ese nombre. Dominios libres al 27-nov-2026: triedro.app, triedro.dev, triedro.net, triedroapp.com (triedro.com ya está registrado). Pendiente: registrar el dominio elegido y buscar la marca en el IMPI (MARCia) en las clases 9 y 42 antes de registrarla.
+- El nombre se puede cambiar sin tocar código con `NEXT_PUBLIC_NOMBRE_SISTEMA`.
+
