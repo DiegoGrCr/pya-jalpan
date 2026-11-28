@@ -1,4 +1,4 @@
-# Triedro
+# Cubo
 
 Sistema de inventarios, cotizaciones, punto de venta y facturación electrónica (CFDI 4.0) multisucursal. Reemplaza a Bind ERP.
 
